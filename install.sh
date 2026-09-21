@@ -58,8 +58,40 @@ esac
 
 say "installing system packages (python3, venv, git, curl)..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git curl >/dev/null
+
+APT_PKGS="python3 python3-venv python3-pip git curl"
+
+# Corporate networks often route apt through a filtering proxy/IPS that can 403 package
+# downloads — detect and warn up front so failures are easy to diagnose.
+if grep -rqiE 'Acquire::.*(Proxy|Mirror)' /etc/apt/apt.conf.d/ /etc/apt/apt.conf 2>/dev/null; then
+  warn "apt proxy/mirror config detected in /etc/apt/apt.conf.d/ — if downloads fail with"
+  warn "403/blocked errors, that appliance must allowlist archive.ubuntu.com and security.ubuntu.com"
+fi
+
+apt_ok=0
+for attempt in 1 2 3; do
+  if apt-get update -qq && apt-get install -y -qq --fix-missing $APT_PKGS >/dev/null; then
+    apt_ok=1
+    break
+  fi
+  warn "apt attempt ${attempt}/3 failed — retrying..."
+  sleep 3
+  apt-get update -qq
+done
+
+if [ "$apt_ok" != "1" ]; then
+  echo -e "${RED}[fail]${NC} could not install packages via apt." >&2
+  echo -e "       The download is most likely being blocked by a network proxy/firewall" >&2
+  echo -e "       (look for '403 Forbidden' and an internal IP in the apt error above)." >&2
+  echo -e "       Fix options:" >&2
+  echo -e "         1. ask your network team to allowlist archive.ubuntu.com + security.ubuntu.com" >&2
+  echo -e "         2. check/fix the proxy in /etc/apt/apt.conf.d/ (grep -ri proxy /etc/apt/apt.conf.d/)" >&2
+  echo -e "         3. switch apt sources to an internal Ubuntu mirror" >&2
+  echo -e "       Then run the failing command manually:" >&2
+  echo -e "           sudo apt update && sudo apt install -y --fix-missing $APT_PKGS" >&2
+  echo -e "       and re-run this installer — it resumes where it left off." >&2
+  exit 1
+fi
 ok "system packages installed"
 
 PYVER=$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
