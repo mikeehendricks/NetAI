@@ -20,7 +20,17 @@ def create_app(config_object=Config):
     from .models import db
     db.init_app(app)
     with app.app_context():
-        db.create_all()
+        # gunicorn workers boot simultaneously on a fresh DB; serialize schema creation
+        import fcntl
+        from config import INSTANCE_DIR
+
+        lock_path = INSTANCE_DIR / ".schema.lock"
+        with open(lock_path, "w") as lockf:
+            fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
+            try:
+                db.create_all()
+            finally:
+                fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
 
     if app.config.get("TRUST_PROXY"):
         # Behind a reverse proxy (nginx / preview proxy): derive real client IP.
