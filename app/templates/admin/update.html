@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Site update - {{ site_name }} admin{% endblock %}
+{% block content %}
+<h1>Site update</h1>
+<div class="grid2">
+  <div class="card">
+    <h2>Version</h2>
+    <table class="kv">
+      <tr><th>Running build</th><td><span class="mono" id="local-sha">{{ current_sha or 'unknown' }}</span></td></tr>
+      <tr><th>Repository</th><td><span class="mono">{{ repo }}</span></td></tr>
+      <tr><th>Branch</th><td><span class="mono">{{ branch }}</span></td></tr>
+      <tr><th>Status</th><td id="update-state" class="muted">checking&hellip;</td></tr>
+    </table>
+    <p>
+      <button class="btn btn-sm" id="btn-check" type="button">Check for updates</button>
+      <button class="btn btn-sm btn-primary confirm-btn" id="btn-update" type="button"
+              data-confirm="Pull the latest code and restart the site? Users may be interrupted.">Install update</button>
+    </p>
+    <p class="muted small">The update runs <span class="mono">scripts/update.sh</span> (git pull, dependency install,
+    service restart). Under systemd the service restarts automatically; in manual setups restart the process if asked.</p>
+  </div>
+  <div class="card">
+    <h2>Latest commits on {{ branch }}</h2>
+    <table class="tbl" id="committbl">
+      <thead><tr><th>SHA</th><th>Message</th><th>Author</th><th>Date</th></tr></thead>
+      <tbody><tr><td colspan="4" class="muted">Click &ldquo;Check for updates&rdquo;.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<div class="card">
+  <h2>Update log</h2>
+  <pre class="code updatelog" id="updatelog">(idle)</pre>
+</div>
+<script type="application/json" id="update-meta">{"repo": {{ repo|tojson }}, "branch": {{ branch|tojson }}, "local": {{ (current_sha or '')|tojson }}}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin_update.js') }}"></script>{% endblock %}

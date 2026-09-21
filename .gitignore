@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+instance/
+.env
+.venv/
+venv/
+*.db
+*.sqlite
+bandit*.txt
+nohup.out
+.DS_Store

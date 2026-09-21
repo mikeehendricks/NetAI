@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}New analysis - {{ site_name }}{% endblock %}
+{% block content %}
+<h1>New network analysis</h1>
+<div class="grid2">
+  <div class="card">
+    <h2>Upload configuration files</h2>
+    <p class="muted">Upload one or more device configurations. The vendor is auto-detected, then the engine runs
+       hardening checks, produces improvement recommendations with generated config fixes, a low-level topology
+       map and an executive summary.</p>
+    <form method="post" action="{{ url_for('main.analyze_upload') }}" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="project_name">Project name (optional)</label>
+      <input id="project_name" name="project_name" maxlength="120" placeholder="e.g. HQ firewall audit">
+      <label for="configs">Configuration files (max {{ max_files }}, {{ max_mb }} MB each, plain text)</label>
+      <input id="configs" name="configs" type="file" multiple required
+             accept=".txt,.cfg,.conf,.running,.xml,.set,.log">
+      <div id="filelist" class="muted small"></div>
+      <button class="btn btn-primary" type="submit">Run analysis</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>What gets checked</h2>
+    <ul class="checklist">
+      <li><strong>Palo Alto PAN-OS</strong> - any/any rules, logging gaps, permitted-IP lockdown, admin lockout, TLS profiles, cleartext mgmt services, weak phash</li>
+      <li><strong>Cisco IOS/IOS-XE</strong> - enable secrets, type-7 passwords, Telnet, VTY ACLs, AAA, SNMP communities, SSH keys, NTP/syslog, legacy services</li>
+      <li><strong>Fortinet FortiGate</strong> - admin trusthosts, allowaccess, TLS/strong-crypto, any-any policies, logging, UTM profiles, lockout, SNMP</li>
+      <li><strong>Aruba AOS-CX/ArubaOS</strong> - web/telnet services, default credentials, SNMP, SSH version, AAA, authorized-managers, NTP/logging</li>
+    </ul>
+    <p class="muted small">Files stay on this server. Analysis is deterministic (expert rules); enable an LLM API key
+       in <code>.env</code> for AI-narrated executive summaries.</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Live sessions - {{ site_name }} admin{% endblock %}
+{% block content %}
+<h1>Realtime user sessions &amp; locations</h1>
+<p class="muted">Auto-refreshes every 10 seconds. Shows users active in the last 5 minutes with their
+public IP and geolocated access point.</p>
+
+<div class="card">
+  <h2>Access map</h2>
+  <svg id="livemap" viewBox="0 0 720 300" role="img" aria-label="World map of user access"></svg>
+  <p class="muted small" id="mapempty">Waiting for data&hellip;</p>
+</div>
+
+<div class="card">
+  <h2>Active now (<span id="livecount">0</span>)</h2>
+  <table class="tbl" id="livetbl">
+    <thead><tr><th>User</th><th>Public IP</th><th>Location</th><th>Last seen</th><th>Browser</th></tr></thead>
+    <tbody><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Recent login history</h2>
+  <table class="tbl" id="historytbl">
+    <thead><tr><th>User</th><th>When (UTC)</th><th>IP</th><th>Location</th></tr></thead>
+    <tbody><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin_live.js') }}"></script>{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ site_name }} admin{% endblock %}
+{% block content %}
+<h1>Site settings</h1>
+<div class="card narrow">
+  <form method="post" action="{{ url_for('admin.settings') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label class="checkrow">
+      <input type="checkbox" name="allow_signup" {{ 'checked' if allow_signup }}>
+      <span>Allow public self-registration</span>
+    </label>
+    <p class="muted small">When off, only admins can create accounts (promote an existing user, or disable this
+       after onboarding). The administrator account itself is created once via the one-time setup page.</p>
+    <button class="btn btn-primary" type="submit">Save settings</button>
+  </form>
+</div>
+{% endblock %}

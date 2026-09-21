@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Executive summary - {{ p.name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Executive summary - {{ p.name }}</h1>
+  <div>
+    <form method="post" action="{{ url_for('main.summary_enhance', pid=p.id) }}" class="inlineform">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="btn btn-sm{{ '' if p.ai_enhanced else ' btn-primary' }}" type="submit">
+        {{ 'Re-run AI enhancement' if p.ai_enhanced else 'Enhance with AI' }}
+      </button>
+    </form>
+    <a class="btn btn-sm" href="{{ url_for('main.summary_md', pid=p.id) }}">Download .md</a>
+    <button class="btn btn-sm print-btn" type="button">Print / PDF</button>
+  </div>
+</div>
+
+{% if p.ai_enhanced and s.get('ai_markdown') %}
+<div class="card">
+  <span class="aibadge">AI-enhanced</span>
+  <div class="md">{{ md_html }}</div>
+</div>
+{% else %}
+<div class="card">
+  {% if s.headline %}<p class="headline">{{ s.headline }}</p>{% endif %}
+  <div class="summarygrid">
+    <div>
+      <svg viewBox="0 0 120 70" class="gauge" role="img" aria-label="Risk score {{ s.score }} of 100">
+        <path d="M 10 62 A 50 50 0 0 1 110 62" fill="none" stroke="#1e293b" stroke-width="12" stroke-linecap="round"/>
+        <path d="M 10 62 A 50 50 0 0 1 110 62" fill="none" stroke="{{ '#f43f5e' if s.score > 65 else '#fb923c' if s.score > 45 else '#facc15' if s.score > 25 else '#22c55e' }}"
+              stroke-width="12" stroke-linecap="round" stroke-dasharray="{{ (s.score / 100 * 157)|round(1) }} 999"/>
+        <text x="60" y="55" text-anchor="middle" class="gaugenum">{{ s.score }}</text>
+        <text x="60" y="68" text-anchor="middle" class="gaugelabel">risk /100 &middot; grade {{ s.grade }}</text>
+      </svg>
+    </div>
+    <div>
+      <table class="kv">
+        <tr><th>Findings</th><td>{{ s.total_findings }} ({{ s.auto_fixable }} auto-fixable)</td></tr>
+        {% for sev in ['critical','high','medium','low','info'] %}
+        <tr><th>{{ sev|capitalize }}</th><td>{{ s.counts.get(sev, 0) }}</td></tr>
+        {% endfor %}
+        <tr><th>Devices</th><td>{{ s.devices|length }}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Top risks &amp; business impact</h2>
+  <table class="tbl">
+    <thead><tr><th>Severity</th><th>Risk</th><th>Device</th><th>Impact</th><th>Recommendation</th></tr></thead>
+    <tbody>
+    {% for t in s.top_risks %}
+    <tr><td><span class="sevbadge sev-{{ t.severity }}">{{ t.severity }}</span></td>
+        <td>{{ t.title }}</td><td>{{ t.device }}</td><td>{{ t.impact }}</td><td>{{ t.recommendation }}</td></tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">No findings.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Device inventory &amp; risk</h2>
+    <table class="tbl">
+      <thead><tr><th>Device</th><th>Vendor</th><th>Role</th><th>Intf</th><th>VLANs</th><th>Risk</th></tr></thead>
+      <tbody>
+      {% for d in s.devices %}
+      <tr><td>{{ d.hostname }}</td><td>{{ d.vendor }}</td><td>{{ d.kind }}</td>
+          <td>{{ d.interfaces }}</td><td>{{ d.vlans }}</td><td>{{ d.score }}/100</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Remediation roadmap</h2>
+    {% for phase, items in s.roadmap.items() %}
+      {% if items %}
+      <h3 class="roadmap-phase">{{ phase }}</h3>
+      <ul>
+        {% for it in items[:12] %}
+        <li><span class="sevbadge sev-{{ it.severity }}">{{ it.severity }}</span>
+            {{ it.rule }} {{ it.title }} <span class="muted small">({{ it.device }}{{ ', auto-fix' if it.auto_fixable }})</span></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

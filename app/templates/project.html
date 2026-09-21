@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }} - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>{{ p.name }}</h1>
+  <div>
+    <a class="btn" href="{{ url_for('main.topology', pid=p.id) }}">Topology</a>
+    <a class="btn" href="{{ url_for('main.summary_view', pid=p.id) }}">Executive summary</a>
+    <form method="post" action="{{ url_for('main.project_delete', pid=p.id) }}" class="inlineform confirm-form" data-confirm="Delete this project and all its files?">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="statgrid">
+  <div class="statcard card"><div class="statnum">{{ p.risk_score }}/100</div><div class="statlabel">Risk score (lower is better)</div></div>
+  <div class="statcard card"><div class="statnum grade-{{ p.grade }}">{{ p.grade }}</div><div class="statlabel">Grade</div></div>
+  {% for s in ['critical','high','medium','low','info'] %}
+  <div class="statcard card sev-{{ s }}-card">
+    <div class="statnum">{{ counts.get(s, 0) }}</div><div class="statlabel">{{ s|capitalize }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>Devices analysed</h2>
+  <table class="tbl">
+    <thead><tr><th>Device</th><th>Vendor</th><th>File</th><th>Size</th><th>Improved config</th></tr></thead>
+    <tbody>
+    {% for f in p.files %}
+      <tr>
+        <td><strong>{{ f.hostname or '(unnamed)' }}</strong></td>
+        <td>{{ f.vendor }}</td>
+        <td class="mono">{{ f.orig_name }}</td>
+        <td class="muted">{{ f.size }} bytes</td>
+        <td>
+          <a class="btn btn-sm" href="{{ url_for('main.file_diff', pid=p.id, fid=f.id) }}">Diff</a>
+          <a class="btn btn-sm" href="{{ url_for('main.file_improved', pid=p.id, fid=f.id) }}">Download improved</a>
+          <a class="btn btn-sm btn-ghost" href="{{ url_for('main.file_original', pid=p.id, fid=f.id) }}">Original</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Findings ({{ all_findings|length }})</h2>
+  <form method="get" class="filterbar">
+    <select name="sev">
+      <option value="">All severities</option>
+      {% for s in sev_order %}
+      <option value="{{ s }}" {{ 'selected' if sev_filter==s }}>{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+    <select name="dev">
+      <option value="">All devices</option>
+      {% for d in devices %}{% if d.hostname %}
+      <option value="{{ d.hostname }}" {{ 'selected' if dev_filter==d.hostname }}>{{ d.hostname }}</option>
+      {% endif %}{% endfor %}
+    </select>
+    <button class="btn btn-sm" type="submit">Filter</button>
+  </form>
+  <table class="tbl findings">
+    <thead><tr><th>Severity</th><th>Rule</th><th>Finding</th><th>Device</th><th>Fix</th></tr></thead>
+    <tbody>
+    {% for f in findings %}
+    <tr class="sevrow-{{ f.severity }}">
+      <td><span class="sevbadge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+      <td class="mono small">{{ f.rule_id }}</td>
+      <td>
+        <details>
+          <summary><strong>{{ f.title }}</strong></summary>
+          <p>{{ f.description }}</p>
+          {% if f.evidence %}
+          <p class="small muted">Evidence:</p>
+          <pre class="code">{{ f.evidence|join('\n') }}</pre>
+          {% endif %}
+          {% if f.recommendation %}<p><strong>Recommendation:</strong> {{ f.recommendation }}</p>{% endif %}
+          {% if f.remediation %}
+          <p class="small muted">Suggested remediation config:</p>
+          <pre class="code">{{ f.remediation }}</pre>
+          {% endif %}
+        </details>
+      </td>
+      <td>{{ f.device }}</td>
+      <td>{{ 'auto' if f.auto_fixable else 'manual' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">No findings match the filter.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

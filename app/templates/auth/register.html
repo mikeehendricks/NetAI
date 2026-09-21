@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Register - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="authcard card">
+  <h1>Create your account</h1>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ url_for('auth.register') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{ username }}" required minlength="3" maxlength="64"
+           pattern="[a-zA-Z0-9._@-]{3,64}" autocomplete="username">
+    <label for="password">Password (min 10 chars)</label>
+    <input id="password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+    <label for="password2">Repeat password</label>
+    <input id="password2" name="password2" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+    <button class="btn btn-primary btn-block" type="submit">Register</button>
+  </form>
+  <p class="muted small">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+</div>
+{% endblock %}

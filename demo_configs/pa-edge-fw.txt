@@ -1,0 +1,25 @@
+! demo fictional config - Palo Alto PAN-OS (set format)
+set deviceconfig system hostname PA-EDGE-FW-01
+set deviceconfig system ip-address 203.0.113.2 netmask 255.255.255.252
+set deviceconfig system default-gateway 203.0.113.1
+set deviceconfig system dns-setting servers primary 8.8.8.8
+set deviceconfig setting management admin-lockout failed-attempts 5
+set deviceconfig setting management admin-lockout lockout-duration 30
+set mgt-config users admin phash $1$vejqagrn$KJ1Hx9VvgbkwUFFFoPXNx/
+set network interface ethernet ethernet1/1 comment "WAN uplink"
+set network interface ethernet ethernet1/1 layer3 ip 203.0.113.2/30
+set network interface ethernet ethernet1/2 comment "Trust to CORE-RTR-01"
+set network interface ethernet ethernet1/2 layer3 ip 10.10.10.1/24
+set network interface ethernet ethernet1/3 comment "DMZ"
+set network interface ethernet ethernet1/3 layer3 ip 172.16.5.1/24
+set network virtual-router default interface [ ethernet1/1 ethernet1/2 ethernet1/3 ]
+set network profiles interface-management-profile MGMT-OPEN ping yes http yes telnet yes
+set network interface ethernet ethernet1/2 interface-management-profile MGMT-OPEN
+set network virtual-router default routing-table ip static-route default nexthop ip-address 203.0.113.1
+set network virtual-router default routing-table ip static-route default destination 0.0.0.0/0
+set rulebase security rules web-out from trust to untrust source any destination any service any application any action allow
+set rulebase security rules web-out log-end no
+set rulebase security rules dmz-in from untrust to dmz source any destination 172.16.5.10 service service-http application web-browsing action allow
+set rulebase security rules dmz-in log-end yes
+set rulebase security rules intra-trust from trust to trust source any destination any service any application any action allow
+set shared ssl-tls-service-profile legacy-tls protocol-settings min-version tls1-0

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}My account - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="grid2">
+  <div class="card">
+    <h2>My account</h2>
+    <table class="kv">
+      <tr><th>Username</th><td>{{ user.username }}</td></tr>
+      <tr><th>Role</th><td>{{ user.role }}</td></tr>
+      <tr><th>Created</th><td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at }} UTC</td></tr>
+      <tr><th>Last login</th><td>{{ user.last_login_at.strftime('%Y-%m-%d %H:%M') if user.last_login_at else 'never' }}
+        {% if user.last_ip %} from <span class="mono">{{ user.last_ip }}</span> ({{ user.last_city or '?'}}, {{ user.last_country or '?' }}){% endif %}</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Change password</h2>
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('auth.account') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="current">Current password</label>
+      <input id="current" name="current" type="password" required autocomplete="current-password">
+      <label for="password">New password (min 10 chars)</label>
+      <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+      <label for="password2">Repeat new password</label>
+      <input id="password2" name="password2" type="password" required minlength="10" autocomplete="new-password">
+      <button class="btn btn-primary" type="submit">Update password</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

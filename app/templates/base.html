@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf" content="{{ csrf_token() }}">
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
+<link rel="icon" href="{{ url_for('static', filename='img/logo.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="{{ url_for('main.index') }}">
+    <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" width="28" height="28">
+    <span>{{ site_name }}</span><span class="tag">network AI</span>
+  </a>
+  <div class="navlinks">
+    {% if session.get('uid') %}
+      <a href="{{ url_for('main.index') }}" class="{{ 'active' if request.endpoint=='main.index' }}">Dashboard</a>
+      <a href="{{ url_for('main.analyze_upload') }}" class="{{ 'active' if request.endpoint=='main.analyze_upload' }}">New Analysis</a>
+      {% if session.get('role')=='admin' %}
+      <span class="navsep"></span>
+      <a href="{{ url_for('admin.overview') }}" class="{{ 'active' if request.endpoint=='admin.overview' }}">Admin</a>
+      <a href="{{ url_for('admin.users') }}" class="{{ 'active' if request.endpoint=='admin.users' }}">Users</a>
+      <a href="{{ url_for('admin.live') }}" class="{{ 'active' if request.endpoint=='admin.live' }}">Live Map</a>
+      <a href="{{ url_for('admin.update') }}" class="{{ 'active' if request.endpoint=='admin.update' }}">Update</a>
+      <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if request.endpoint=='admin.settings' }}">Settings</a>
+      <a href="{{ url_for('admin.audit_log') }}" class="{{ 'active' if request.endpoint=='admin.audit_log' }}">Audit</a>
+      {% endif %}
+      <span class="navsep"></span>
+      <a href="{{ url_for('auth.account') }}" class="{{ 'active' if request.endpoint=='auth.account' }}">&#128100; {{ session.get('username') }}</a>
+      <form method="post" action="{{ url_for('auth.logout') }}" class="inlineform">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>
+      </form>
+    {% else %}
+      <a href="{{ url_for('auth.login') }}">Sign in</a>
+      <a href="{{ url_for('auth.register') }}">Register</a>
+    {% endif %}
+  </div>
+</nav>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flashes container">
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+
+<footer class="footer container">
+  <span>{{ site_name }} &middot; AI-powered network configuration intelligence</span>
+  {% if site_version %}<span class="muted mono">build {{ site_version }}</span>{% endif %}
+</footer>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

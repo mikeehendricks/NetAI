@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Network analysis dashboard</h1>
+  <a class="btn btn-primary" href="{{ url_for('main.analyze_upload') }}">+ New analysis</a>
+</div>
+
+<div class="statgrid">
+  <div class="statcard card"><div class="statnum">{{ my_projects }}</div><div class="statlabel">My analyses</div></div>
+  <div class="statcard card"><div class="statnum">{{ my_findings }}</div><div class="statlabel">Findings on my configs</div></div>
+  <div class="statcard card"><div class="statnum">4</div><div class="statlabel">Vendors supported</div></div>
+  <div class="statcard card"><div class="statnum">Palo&nbsp;Alto &middot; Cisco &middot; Fortinet &middot; Aruba</div><div class="statlabel">Auto-detected per upload</div></div>
+</div>
+
+<div class="card">
+  <h2>Recent analyses</h2>
+  {% if projects %}
+  <table class="tbl">
+    <thead><tr><th>Project</th><th>Files</th><th>Risk score</th><th>Grade</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+      <tr>
+        <td><a href="{{ url_for('main.project', pid=p.id) }}">{{ p.name }}</a></td>
+        <td>{{ p.files|length }}</td>
+        <td><span class="scorepill score-{{ p.grade }}">{{ p.risk_score }}/100</span></td>
+        <td>{{ p.grade }}</td>
+        <td class="muted">{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+          <a class="btn btn-sm" href="{{ url_for('main.project', pid=p.id) }}">Findings</a>
+          <a class="btn btn-sm" href="{{ url_for('main.topology', pid=p.id) }}">Topology</a>
+          <a class="btn btn-sm" href="{{ url_for('main.summary_view', pid=p.id) }}">Exec summary</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No analyses yet. Upload firewall/router/switch configuration files to get started.</p>
+  <p class="muted small">Supported: Palo Alto PAN-OS (XML or set), Cisco IOS/IOS-XE, Fortinet FortiGate, Aruba AOS-CX / ArubaOS.</p>
+  {% endif %}
+</div>
+{% endblock %}

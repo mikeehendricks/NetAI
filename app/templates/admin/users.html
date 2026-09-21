@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Users - {{ site_name }} admin{% endblock %}
+{% block content %}
+<h1>User management</h1>
+<div class="card">
+  <form method="get" class="filterbar">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search username..." maxlength="64">
+    <button class="btn btn-sm" type="submit">Search</button>
+  </form>
+  <table class="tbl">
+    <thead><tr>
+      <th>User</th><th>Role</th><th>Status</th><th>Created (UTC)</th><th>Last login</th>
+      <th>Public IP</th><th>Location</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for u in users %}
+    <tr class="{{ 'row-dim' if not u.is_active }}">
+      <td><strong>{{ u.username }}</strong>{% if u.must_reset %} <span class="pill pill-warn">temp pw</span>{% endif %}</td>
+      <td>{{ u.role }}</td>
+      <td>{{ 'active' if u.is_active else 'disabled' }}{% if u.is_locked %} <span class="pill pill-danger">locked</span>{% endif %}</td>
+      <td class="muted">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+      <td class="muted">{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'never' }}</td>
+      <td class="mono">{{ u.last_ip or '-' }}</td>
+      <td>{% if u.last_city or u.last_country %}{{ u.last_city or '?' }}, {{ u.last_country or '?' }}{% else %}<span class="muted">-</span>{% endif %}</td>
+      <td class="actions">
+        {% if u.id != session.get('uid') %}
+        <form method="post" action="{{ url_for('admin.user_reset', uid=u.id) }}" class="inlineform confirm-form" data-confirm="Issue a temporary password for {{ u.username }}?">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">Reset password</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.user_toggle', uid=u.id) }}" class="inlineform">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">{{ 'Disable' if u.is_active else 'Enable' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.user_role', uid=u.id) }}" class="inlineform confirm-form" data-confirm="Toggle admin role for {{ u.username }}?">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit">{{ 'Demote' if u.role=='admin' else 'Promote' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.user_delete', uid=u.id) }}" class="inlineform confirm-form" data-confirm="PERMANENTLY delete {{ u.username }} and all their data?">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger" type="submit">Delete</button>
+        </form>
+        {% else %}
+        <span class="muted small">(you)</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

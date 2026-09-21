@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Topology - {{ p.name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Low-level topology - {{ p.name }}</h1>
+  <div>
+    <button class="btn btn-sm" id="topo-fit" type="button">Fit view</button>
+    <button class="btn btn-sm" id="topo-export" type="button">Export SVG</button>
+    <a class="btn btn-sm" href="{{ url_for('main.project', pid=p.id) }}">Back to findings</a>
+  </div>
+</div>
+<div class="card topocard">
+  <div id="topo-wrap">
+    <svg id="topo-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Network topology"></svg>
+  </div>
+  <div class="topolegend">
+    <span><svg width="14" height="14"><rect width="14" height="14" rx="3" class="lg-firewall"/></svg> Firewall</span>
+    <span><svg width="14" height="14"><rect width="14" height="14" rx="3" class="lg-router"/></svg> Router</span>
+    <span><svg width="14" height="14"><rect width="14" height="14" rx="3" class="lg-switch"/></svg> Switch</span>
+    <span><svg width="14" height="14"><circle cx="7" cy="7" r="6" class="lg-cloud"/></svg> Internet/WAN</span>
+    <span><svg width="14" height="14"><rect width="14" height="14" rx="7" class="lg-subnet"/></svg> L3 subnet</span>
+    <span><svg width="14" height="14"><rect width="14" height="14" rx="7" class="lg-vlan"/></svg> VLAN (L2)</span>
+    <span class="muted small">Drag nodes &middot; scroll to zoom &middot; hover a node/edge for details</span>
+  </div>
+</div>
+<script type="application/json" id="topo-data">{{ topo|tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/topology.js') }}"></script>{% endblock %}

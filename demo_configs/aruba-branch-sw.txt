@@ -1,0 +1,31 @@
+hostname ARUBA-BR-01
+!
+vlan 1
+vlan 30
+ name BRANCH-CLIENTS
+vlan 40
+ name BRANCH-GUEST
+!
+interface 1/1/1
+ description uplink to CORE-RTR-01
+ no shutdown
+ ip address 10.10.30.2/24
+!
+interface 1/1/2
+ description AP
+ vlan access 30
+!
+interface 1/1/3
+ description GUEST-AP
+ vlan access 40
+!
+interface vlan 40
+ ip address 10.60.40.1/24
+!
+ip route 0.0.0.0/0 10.10.30.1
+snmp-server community public
+snmp-server community private
+telnet-server enable
+web-management
+ip ssh version 1
+mgmt-user admin aruba123

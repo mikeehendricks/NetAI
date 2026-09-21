@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Sign in - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="authcard card">
+  <img src="{{ url_for('static', filename='img/logo.svg') }}" width="64" height="64" alt="NetAI logo">
+  <h1>Sign in to {{ site_name }}</h1>
+  <p class="muted">Analyze network device configurations and get AI-assisted improvement recommendations.</p>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ url_for('auth.login') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{ username }}" autocomplete="username" required autofocus maxlength="64">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128">
+    <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+  </form>
+  <p class="muted small">No account? <a href="{{ url_for('auth.register') }}">Register</a></p>
+</div>
+{% endblock %}

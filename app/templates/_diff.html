@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Diff {{ cf.orig_name }} - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Improved config diff - {{ cf.orig_name }} <span class="muted">({{ cf.vendor }})</span></h1>
+  <a class="btn" href="{{ url_for('main.file_improved', pid=cf.project_id, fid=cf.id) }}">Download improved file</a>
+</div>
+<div class="card">
+<pre class="code diffcode">{% for line in diff %}{% if line.startswith('+') %}<span class="diff-add">{{ line }}
+</span>{% elif line.startswith('-') %}<span class="diff-del">{{ line }}
+</span>{% elif line.startswith('@@') %}<span class="diff-hunk">{{ line }}
+</span>{% else %}{{ line }}
+{% endif %}{% endfor %}</pre>
+</div>
+{% endblock %}
