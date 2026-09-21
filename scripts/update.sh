@@ -4,30 +4,43 @@
 set -euo pipefail
 
 APP_DIR="${NETAI_DIR:-/opt/netai}"
+BRANCH="${NETAI_BRANCH:-main}"
 cd "$APP_DIR"
 
 log() { echo -e "[netai-update] $*"; }
+
+# The repo belongs to the service user; when this script runs as root, drop to
+# the owner for git/pip so we never trip git's safe.directory protection and
+# never leave root-owned files inside the venv.
+OWNER="$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo root)"
+as_owner() {
+  if [ "$(id -u)" -eq 0 ] && [ "$OWNER" != "root" ] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$OWNER" -- "$@"
+  else
+    "$@"
+  fi
+}
 
 if [ ! -d .git ]; then
   log "ERROR: $APP_DIR is not a git checkout; cannot self-update."
   exit 1
 fi
 
-log "current commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+log "current commit: $(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 log "fetching latest code..."
-git fetch origin "${NETAI_BRANCH:-main}" --quiet
-git reset --hard "origin/${NETAI_BRANCH:-main}" --quiet
-log "now at: $(git rev-parse --short HEAD)"
+as_owner git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
+as_owner git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
+log "now at: $(git -C "$APP_DIR" rev-parse --short HEAD)"
 
 if [ -d .venv ]; then
-  PY=".venv/bin/python3"
+  PY="$APP_DIR/.venv/bin/python3"
 else
   PY="python3"
 fi
 
 log "installing dependencies..."
-"$PY" -m pip install --quiet --upgrade pip
-"$PY" -m pip install --quiet -r requirements.txt
+as_owner "$PY" -m pip install --quiet --upgrade pip
+as_owner "$PY" -m pip install --quiet -r requirements.txt
 log "dependencies OK"
 
 # restart service if systemd manages it; otherwise remind the operator

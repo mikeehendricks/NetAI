@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  NetAI installer for Ubuntu Server (20.04 / 22.04 / 24.04)
+#  NetAI installer for Ubuntu Server (20.04 / 22.04 / 24.04 / 26.04)
 #
 #  Usage:
 #    sudo bash install.sh                       # install from GitHub to /opt/netai
-#    sudo bash install.sh --port 8080           # custom port
+#    sudo bash install.sh --port 8080           # custom public port
 #    sudo bash install.sh --dir /srv/netai      # custom directory
 #    sudo bash install.sh --repo owner/NetAI    # custom GitHub repo
 #    sudo bash install.sh --local               # install from the current directory
+#    sudo bash install.sh --with-nginx          # nginx reverse proxy on the public port
 #
-#  What it does:
-#    1. installs system dependencies (python3, venv, git, curl)
-#    2. clones the NetAI repository (or copies the local tree)
-#    3. creates an isolated virtualenv and installs Python dependencies
-#    4. generates a secret key + a ONE-TIME admin setup key
-#    5. creates a locked-down systemd service (dedicated system user)
-#    6. grants the service a passwordless sudo rule ONLY for its update script
-#    7. starts the site and prints the admin setup instructions
+#  Port handling:
+#    --port P            = the PUBLIC port users browse to.
+#    without --with-nginx: gunicorn binds 0.0.0.0:P directly (CAP_NET_BIND_SERVICE
+#                          is granted to the service for P < 1024).
+#    with    --with-nginx: nginx binds 0.0.0.0:P and proxies to gunicorn on
+#                          127.0.0.1:<internal port>; TRUST_PROXY is set automatically.
+#
+#  Re-runs are safe: the repo is updated in place, secrets are kept, and the
+#  one-time admin setup key is regenerated only if it is still unused.
 # =============================================================================
 set -euo pipefail
 
 REPO="${NETAI_REPO:-mikeehendricks/NetAI}"
 BRANCH="${NETAI_BRANCH:-main}"
 APP_DIR="/opt/netai"
-PORT="8000"
+PORT="8000"                 # public port
 SERVICE_USER="netai"
 FROM_LOCAL=0
 WITH_NGINX=0
@@ -34,6 +36,21 @@ ok()   { echo -e "${GREEN}[ ok ]${NC} $*"; }
 warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
 die()  { echo -e "${RED}[fail]${NC} $*"; exit 1; }
 
+# Run git inside DIR as the directory's owner when we are root and the owner
+# differs — git >= 2.35.2 refuses "dubious ownership" repos otherwise.
+git_run() {
+  local dir="$1"; shift
+  local owner
+  owner="$(stat -c '%U' "$dir" 2>/dev/null || echo root)"
+  if [ "$(id -u)" -eq 0 ] && [ "$owner" != "root" ] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$owner" -- git -C "$dir" "$@"
+  else
+    git -C "$dir" "$@"
+  fi
+}
+
+port_busy() { ss -tln 2>/dev/null | grep -q ":$1 "; }
+
 # ---------------------------------------------------------------- parse args
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,7 +60,7 @@ while [ $# -gt 0 ]; do
     --branch) BRANCH="$2"; shift 2 ;;
     --local)  FROM_LOCAL=1; shift ;;
     --with-nginx) WITH_NGINX=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -113,8 +130,11 @@ if [ "$FROM_LOCAL" = "1" ]; then
 else
   if [ -d "$APP_DIR/.git" ]; then
     say "$APP_DIR already exists — pulling latest..."
-    git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
-    git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
+    # The repo is owned by the service user; allowlist it system-wide so root can
+    # operate on it (idempotent). git_run below also drops privileges as needed.
+    git config --system --replace-all safe.directory "$APP_DIR" >/dev/null 2>&1 || true
+    git_run "$APP_DIR" fetch origin "$BRANCH" --quiet
+    git_run "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
   else
     say "cloning https://github.com/$REPO (branch $BRANCH)..."
     rm -rf "$APP_DIR"
@@ -124,11 +144,29 @@ else
 fi
 cd "$APP_DIR"
 
+# ---------------------------------------------------------------- port plan
+BIND_HOST="0.0.0.0"
+GW_PORT="$PORT"                 # the port gunicorn actually binds
+if [ "$WITH_NGINX" = "1" ]; then
+  BIND_HOST="127.0.0.1"         # gunicorn stays on loopback; nginx serves the public port
+  GW_PORT=8000
+  while [ "$GW_PORT" = "$PORT" ] || port_busy "$GW_PORT"; do
+    GW_PORT=$((GW_PORT + 1))
+  done
+fi
+
+UNIT_CAPS=""
+if [ "$GW_PORT" -lt 1024 ]; then
+  UNIT_CAPS=$'AmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE'
+fi
+
 # ---------------------------------------------------------------- python env
 say "creating virtualenv and installing Python dependencies..."
-python3 -m venv .venv
-./.venv/bin/pip install --quiet --upgrade pip
-./.venv/bin/pip install --quiet -r requirements.txt
+if [ ! -x .venv/bin/python3 ]; then
+  python3 -m venv .venv
+fi
+.venv/bin/pip install --quiet --upgrade pip
+.venv/bin/pip install --quiet -r requirements.txt
 ok "python environment ready"
 
 # ---------------------------------------------------------------- secrets
@@ -138,23 +176,27 @@ if [ ! -f .env ]; then
   SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
   cat > .env <<EOF
 SECRET_KEY=$SECRET
-PORT=$PORT
+PORT=$GW_PORT
 GITHUB_REPO=$REPO
 GITHUB_BRANCH=$BRANCH
-TRUST_PROXY=0
+TRUST_PROXY=$([ "$WITH_NGINX" = "1" ] && echo 1 || echo 0)
 HTTPS_ONLY=0
 ALLOW_SIGNUP=1
 EOF
   chmod 600 .env
   ok "generated .env with a fresh SECRET_KEY"
 else
-  warn "existing .env kept (set PORT=$PORT manually if needed)"
+  # keep the operator's secret, but apply this run's port/proxy choices
+  sed -i "s/^PORT=.*/PORT=$GW_PORT/" .env
+  sed -i "s/^TRUST_PROXY=.*/TRUST_PROXY=$([ "$WITH_NGINX" = "1" ] && echo 1 || echo 0)/" .env
+  warn "existing .env kept — PORT/TRUST_PROXY updated for this run's flags"
 fi
 
+SETUP_KEY_STATUS="generated ONE-TIME admin setup key"
 SETUP_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
 echo "$SETUP_KEY" > instance/SETUP_KEY
 chmod 600 instance/SETUP_KEY
-ok "generated ONE-TIME admin setup key"
+ok "$SETUP_KEY_STATUS"
 
 # ---------------------------------------------------------------- service user
 if id "$SERVICE_USER" &>/dev/null; then
@@ -189,15 +231,17 @@ Group=$SERVICE_USER
 WorkingDirectory=$APP_DIR
 Environment=PATH=$APP_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NETAI_DIR=$APP_DIR
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=$APP_DIR/.env
 ExecStart=$APP_DIR/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 60 \
-    --bind 0.0.0.0:${PORT} --access-logfile - --error-logfile - wsgi:app
+    --bind ${BIND_HOST}:${GW_PORT} --access-logfile - --error-logfile - wsgi:app
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=true
 ReadWritePaths=$APP_DIR/instance
+${UNIT_CAPS}
 
 [Install]
 WantedBy=multi-user.target
@@ -210,7 +254,7 @@ systemctl is-active --quiet netai && ok "netai service is running" || { journalc
 
 # ---------------------------------------------------------------- firewall (best effort)
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-  ufw allow "${PORT}/tcp" >/dev/null 2>&1 && ok "ufw: allowed port $PORT" || warn "could not open ufw port"
+  ufw allow "${PORT}/tcp" >/dev/null 2>&1 && ok "ufw: allowed public port $PORT" || warn "could not open ufw port"
 fi
 
 # ---------------------------------------------------------------- optional nginx
@@ -218,11 +262,11 @@ if [ "$WITH_NGINX" = "1" ]; then
   apt-get install -y -qq nginx >/dev/null
   cat > /etc/nginx/sites-available/netai <<EOF
 server {
-    listen 80;
+    listen ${PORT};
     server_name _;
     client_max_body_size 30m;
     location / {
-        proxy_pass http://127.0.0.1:${PORT};
+        proxy_pass http://127.0.0.1:${GW_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
@@ -231,20 +275,25 @@ server {
 EOF
   ln -sf /etc/nginx/sites-available/netai /etc/nginx/sites-enabled/netai
   rm -f /etc/nginx/sites-enabled/default
-  nginx -t >/dev/null 2>&1 && systemctl reload nginx && ok "nginx reverse proxy configured (set TRUST_PROXY=1 in .env)" \
-    || warn "nginx config failed - check manually"
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx && \
+    ok "nginx reverse proxy: 0.0.0.0:$PORT -> 127.0.0.1:$GW_PORT (TRUST_PROXY=1 set)" \
+    || warn "nginx config failed - check manually with 'nginx -t'"
 fi
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 IP=${IP:-<server-ip>}
+if [ "$PORT" = "80" ]; then PUBLIC_URL="http://$IP"; else PUBLIC_URL="http://$IP:$PORT"; fi
 echo
 echo -e "${GREEN}==============================================================${NC}"
 echo -e "${GREEN}  NetAI installed successfully!${NC}"
 echo -e "${GREEN}==============================================================${NC}"
-echo -e "  URL:          ${CYAN}http://${IP}:${PORT}${NC}"
+echo -e "  URL:          ${CYAN}${PUBLIC_URL}${NC}"
+if [ "$WITH_NGINX" = "1" ]; then
+  echo -e "  Path:         nginx :$PORT  ->  gunicorn 127.0.0.1:$GW_PORT"
+fi
 echo
 echo -e "  ONE-TIME ADMIN SETUP (do this now):"
-echo -e "    1. open ${CYAN}http://${IP}:${PORT}/setup${NC}"
+echo -e "    1. open ${CYAN}${PUBLIC_URL}/setup${NC}"
 echo -e "    2. paste this setup key (also stored in ${YELLOW}$APP_DIR/instance/SETUP_KEY${NC}, root-only):"
 echo
 echo -e "        ${YELLOW}${SETUP_KEY}${NC}"
