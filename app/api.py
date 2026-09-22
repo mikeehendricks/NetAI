@@ -123,14 +123,24 @@ def _pid_alive(pid):
     if not pid:
         return False
     try:
-        os.kill(pid, 0)
-        return True
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            data = f.read()
+        # state comes right after the final ')' in the stat stream; a zombie
+        # ('Z') has exited but not been reaped - os.kill would still report
+        # it alive, which once glued the 'update running' marker forever.
+        return not data.rsplit(b")", 1)[1].split()[0].startswith(b"Z")
     except ProcessLookupError:
         return False
-    except PermissionError:
-        return True      # exists but owned by another user (e.g. root via systemd)
-    except OSError:
-        return False
+    except (OSError, ValueError, IndexError):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True      # exists but owned by another user (e.g. root via systemd)
+        except OSError:
+            return False
 
 
 def update_running():
@@ -273,7 +283,10 @@ def update_run():
         with open(logp, "ab") as lf:
             proc = subprocess.Popen(  # nosec B603 - fixed argv from config; no user input
                 ["bash", str(script)], stdout=lf, stderr=subprocess.STDOUT,
-                start_new_session=True, cwd=str(_repo_root()))
+                start_new_session=True, cwd=str(_repo_root()),
+                env={**os.environ,
+                     "NETAI_DIR": str(_repo_root()),
+                     "NETAI_BRANCH": current_app.config.get("GITHUB_BRANCH", "main")})
         marker.write_text(json.dumps({"pid": proc.pid, "started": time.time()}))
     except Exception as e:
         marker.unlink(missing_ok=True)

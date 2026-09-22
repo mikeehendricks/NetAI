@@ -20,9 +20,11 @@ fi
 
 APP_DIR="${NETAI_DIR:-/opt/netai}"
 BRANCH="${NETAI_BRANCH:-main}"
-cd "$APP_DIR"
 
 log() { echo -e "[netai-update] $*"; }
+
+log "update started (pid $$ as $(id -un 2>/dev/null || echo ?) on $APP_DIR)"
+cd "$APP_DIR" || { log "ERROR: application directory $APP_DIR not found"; exit 1; }
 
 # Always clear the in-progress marker when the script ends (success or failure),
 # so the /admin update button can never get stuck on 'already in progress'.
@@ -32,8 +34,6 @@ cleanup() {
   rm -f "/tmp/.netai-update.$$.sh" 2>/dev/null || true
 }
 trap cleanup EXIT
-
-log "update started (pid $$ as $(id -un 2>/dev/null || echo ?) on $APP_DIR)"
 
 # The repo belongs to the service user; when this script runs as root, drop to
 # the owner for git/pip so we never trip git's safe.directory protection and
