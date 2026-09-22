@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404 - fixed argv, admin-only
+import time
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, jsonify, request, session
@@ -88,8 +89,54 @@ def update_check():
                     "commits": commits, "error": error, "running": update_running()})
 
 
+MARKER_TIMEOUT_SECONDS = 900  # hard cap: an update may never legitimately run longer
+
+
+def _marker_path():
+    return Path(current_app.config["UPLOAD_FOLDER"]).parent / "update.running"
+
+
+def _pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True      # exists but owned by another user (e.g. root via sudo)
+    except OSError:
+        return False
+
+
 def update_running():
-    return (Path(current_app.config["UPLOAD_FOLDER"]).parent / "update.running").exists()
+    """True only while the updater process is actually alive AND fresh.
+    Stale markers (finished/crashed update, reboot, timeout) are cleared here so
+    the admin can always retry — the 'stuck in progress' bug can not recur."""
+    marker = _marker_path()
+    if not marker.exists():
+        return False
+    pid, started = 0, 0.0
+    try:
+        data = json.loads(marker.read_text() or "{}")
+        pid = int(data.get("pid", 0) or 0)
+        started = float(data.get("started", 0) or 0)
+    except (ValueError, OSError):
+        # legacy/plain-text marker: fall back to file age
+        try:
+            started = marker.stat().st_mtime
+        except OSError:
+            marker.unlink(missing_ok=True)
+            return False
+    stale = (started and (time.time() - started) > MARKER_TIMEOUT_SECONDS) or not _pid_alive(pid)
+    if stale:
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _update_log_path():
@@ -107,17 +154,19 @@ def update_run():
     if not script.exists():
         return jsonify({"ok": False, "error": f"Update script not found: {script}"}), 500
     logp = _update_log_path()
-    marker = Path(current_app.config["UPLOAD_FOLDER"]).parent / "update.running"
+    marker = _marker_path()
     try:
         logp.write_text("")  # truncate
-        marker.write_text("running")
+        # guard against double-click races before the process exists
+        marker.write_text(json.dumps({"pid": 0, "started": time.time()}))
         # prefer sudo rule (production), fall back to direct exec (dev/preview)
         sudo = shutil.which("sudo")
         cmd = ([sudo, "-n", str(script)] if sudo else ["bash", str(script)])
         with open(logp, "ab") as lf:
-            subprocess.Popen(  # nosec B603 - cmd is [sudo|-n|bash, script-from-config]; no user input
+            proc = subprocess.Popen(  # nosec B603 - cmd is [sudo|-n|bash, script-from-config]; no user input
                 cmd, stdout=lf, stderr=subprocess.STDOUT,
-                             start_new_session=True, cwd=str(_repo_root()))
+                start_new_session=True, cwd=str(_repo_root()))
+        marker.write_text(json.dumps({"pid": proc.pid, "started": time.time()}))
     except Exception as e:
         marker.unlink(missing_ok=True)
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

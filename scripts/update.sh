@@ -43,11 +43,19 @@ as_owner "$PY" -m pip install --quiet --upgrade pip
 as_owner "$PY" -m pip install --quiet -r requirements.txt
 log "dependencies OK"
 
-# restart service if systemd manages it; otherwise remind the operator
+# restart service if systemd manages it; otherwise remind the operator.
+# A plain `systemctl restart` from inside this script kills this script too
+# (systemd tears down the whole cgroup), so prefer a transient one-shot timer
+# that lives outside the service's cgroup when systemd-run is available.
 if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q "^netai.service"; then
   log "restarting netai service..."
-  systemctl restart netai
-  sleep 1
+  if command -v systemd-run >/dev/null 2>&1 && systemd-run --quiet --on-active=2 systemctl restart netai >/dev/null 2>&1; then
+    log "restart scheduled (detached) - giving it 5s..."
+    sleep 5
+  else
+    systemctl restart netai || true
+    sleep 1
+  fi
   if systemctl is-active --quiet netai; then
     log "service restarted and active."
   else
