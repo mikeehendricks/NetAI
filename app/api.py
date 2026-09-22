@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 - fixed argv, admin-only
 import time
@@ -66,8 +67,23 @@ def _repo_root():
 @admin_required
 def update_check():
     cfg = current_app.config
-    local = cfg.get("SITE_VERSION", "")
-    remote_sha, commits, error = None, [], None
+    # The deployed code is what is in the repo checkout - get the real HEAD sha.
+    # (SITE_VERSION is a display string like "v1.2.0 (build c7ab740)" and must
+    # never be string-compared against a remote sha; that broke "up to date".)
+    local_full = ""
+    try:
+        r = subprocess.run(  # nosec B603, B607 - fixed argv 'git rev-parse'
+            ["git", "rev-parse", "HEAD"], cwd=str(_repo_root()),
+            capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            local_full = r.stdout.strip()
+    except Exception:
+        pass
+    if not local_full:
+        m = re.search(r"[0-9a-f]{7,40}", cfg.get("SITE_VERSION", "") or "")
+        local_full = m.group(0) if m else ""
+    local = local_full[:7]
+    remote_full, remote_sha, commits, error = None, None, [], None
     url = f"https://api.github.com/repos/{cfg['GITHUB_REPO']}/commits"
     params = {"sha": cfg["GITHUB_BRANCH"], "per_page": 5}
     try:
@@ -77,7 +93,8 @@ def update_check():
         if r.status_code == 200:
             arr = r.json()
             if arr:
-                remote_sha = arr[0]["sha"][:7]
+                remote_full = arr[0]["sha"]
+                remote_sha = remote_full[:7]
                 commits = [{
                     "sha": c["sha"][:7],
                     "message": (c["commit"]["message"].splitlines() or [""])[0][:100],
@@ -88,7 +105,12 @@ def update_check():
             error = f"GitHub API returned {r.status_code}"
     except Exception as e:
         error = str(e)[:200]
-    up_to_date = bool(remote_sha and local and remote_sha.startswith(local))
+    # up to date = the deployed commit IS the remote commit (full-sha equality,
+    # with short-sha fallback if git was unavailable and we only have 7 chars)
+    up_to_date = bool(
+        remote_full and local_full
+        and (remote_full == local_full or remote_full.startswith(local) or local_full.startswith(remote_sha))
+    )
     return jsonify({"local": local, "remote": remote_sha, "up_to_date": up_to_date,
                     "commits": commits, "error": error, "running": update_running()})
 
