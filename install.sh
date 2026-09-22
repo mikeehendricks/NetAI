@@ -145,6 +145,10 @@ fi
 cd "$APP_DIR"
 
 # ---------------------------------------------------------------- port plan
+# Stop a previous instance first so its old bind doesn't influence port choice
+# and so the new unit/venv/code is always what's running afterwards.
+systemctl stop netai.service >/dev/null 2>&1 || true
+
 BIND_HOST="0.0.0.0"
 GW_PORT="$PORT"                 # the port gunicorn actually binds
 if [ "$WITH_NGINX" = "1" ]; then
@@ -248,7 +252,8 @@ WantedBy=multi-user.target
 EOF
 chmod 640 "$APP_DIR/scripts/update.sh"
 systemctl daemon-reload
-systemctl enable --now netai.service
+systemctl enable netai.service >/dev/null 2>&1 || true
+systemctl restart netai.service
 sleep 2
 systemctl is-active --quiet netai && ok "netai service is running" || { journalctl -u netai -n 30 --no-pager; die "service failed to start"; }
 
