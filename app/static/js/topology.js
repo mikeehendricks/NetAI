@@ -20,6 +20,7 @@
   function widthOf(n) { return n.kind === "subnet" || n.kind === "vlan" ? 150 : n.kind === "cloud" ? 130 : 150; }
   function heightOf(n) { return n.kind === "subnet" || n.kind === "vlan" ? 40 : n.kind === "cloud" ? 70 : 54; }
 
+  function forceLayout() {
   for (var iter = 0; iter < 320; iter++) {
     // repulsion
     for (var i = 0; i < nodes.length; i++) {
@@ -51,6 +52,73 @@
       n.y += Math.max(-14, Math.min(14, n.vy));
     });
   }
+  }
+
+  /* ------------- tree layout (DEFAULT): WAN on top, hierarchy below --------
+     BFS from the Internet/WAN cloud (or the best-connected device) builds the
+     levels; leaves are packed left-to-right and every parent is centred over
+     its children, giving the classic ISP-tree reading order.               */
+  function treeLayout() {
+    if (!nodes.length) return;
+    var adj = {}, prio = { cloud: 0, firewall: 1, router: 2, switch: 3, device: 4, subnet: 5, vlan: 6 };
+    nodes.forEach(function (n) { adj[n.id] = []; });
+    links.forEach(function (l) {
+      if (adj[l.source] && adj[l.target]) { adj[l.source].push(l.target); adj[l.target].push(l.source); }
+    });
+    function rank(id) {
+      var n = byId[id];
+      return (prio[n.kind] !== undefined ? prio[n.kind] : 5) + "/" + n.label;
+    }
+    nodes.forEach(function (n) {
+      adj[n.id].sort(function (a, b) { return rank(a) < rank(b) ? -1 : 1; });
+    });
+    var roots = nodes.filter(function (n) { return n.kind === "cloud"; }).map(function (n) { return n.id; });
+    if (!roots.length) {
+      var cands = nodes.filter(function (n) {
+        return n.kind === "router" || n.kind === "firewall" || n.kind === "switch";
+      }).sort(function (a, b) { return adj[b.id].length - adj[a.id].length; });
+      roots = [cands.length ? cands[0].id : nodes[0].id];
+    }
+    var parent = {}, depth = {}, visited = {}, queue = [];
+    roots.forEach(function (r) { visited[r] = true; depth[r] = 0; parent[r] = null; queue.push(r); });
+    function bfs() {
+      while (queue.length) {
+        var id = queue.shift();
+        adj[id].forEach(function (m) {
+          if (!visited[m]) { visited[m] = true; parent[m] = id; depth[m] = depth[id] + 1; queue.push(m); }
+        });
+      }
+    }
+    bfs();
+    nodes.forEach(function (n) {          // disconnected components become extra trees
+      if (!visited[n.id]) { visited[n.id] = true; parent[n.id] = null; depth[n.id] = 0; roots.push(n.id); queue.push(n.id); }
+    });
+    bfs();
+    var children = {}, posX = {};
+    nodes.forEach(function (n) { children[n.id] = []; });
+    nodes.forEach(function (n) { if (parent[n.id]) children[parent[n.id]].push(n.id); });
+    var cursor = 0;
+    function wOf(id) { return widthOf(byId[id]); }
+    function place(id) {
+      var kids = children[id];
+      if (!kids.length) { posX[id] = cursor + wOf(id) / 2; cursor += wOf(id) + 64; return; }
+      var first = null, last = null;
+      kids.forEach(function (k) { place(k); if (first === null) first = posX[k]; last = posX[k]; });
+      posX[id] = (first + last) / 2;
+    }
+    roots.forEach(function (r, i) { if (i > 0) cursor += 90; place(r); });
+    nodes.forEach(function (n) {
+      n.x = posX[n.id] !== undefined ? posX[n.id] : 400 + Math.random() * 40;
+      n.y = 80 + depth[n.id] * 135;
+    });
+  }
+
+  function applyLayout(mode) {
+    if (mode === "force") forceLayout(); else treeLayout();
+    nodes.forEach(function (n) { redrawNode(n); });
+    fit();
+  }
+  treeLayout();   // default view
 
   /* ---------------- svg helpers ---------------- */
   function el(tag, attrs, parent) {
@@ -90,12 +158,14 @@
     var labelBg = el("rect", { rx: 4, fill: "#0a1322", opacity: .92 }, mid);
     var label = txt(0, 0, l.label + (l.ip ? " " + l.ip : ""), "edge-t", "middle", mid);
     label.setAttribute("fill", color);
+    var lw = 100;
+    try { lw = label.getComputedTextLength() + 12; } catch (e) {}
     function midPt() {
       var ax = a.x, ay = a.y, bx = b.x, by = b.y;
-      var mx = (ax + bx) / 2, my = (ay + by) / 2;
+      var t = 0.62, mx = ax + (bx - ax) * t, my = ay + (by - ay) * t;   // nearer the child: stops label pile-ups at hubs
       mid.setAttribute("transform", "translate(" + mx + "," + my + ")");
-      labelBg.setAttribute("x", -(label.getComputedTextLength ? 60 : 50)); labelBg.setAttribute("y", -14);
-      labelBg.setAttribute("width", 100); labelBg.setAttribute("height", 16);
+      labelBg.setAttribute("x", -lw / 2); labelBg.setAttribute("y", -14);
+      labelBg.setAttribute("width", lw); labelBg.setAttribute("height", 16);
       line.setAttribute("x1", ax); line.setAttribute("y1", ay);
       line.setAttribute("x2", bx); line.setAttribute("y2", by);
     }
@@ -235,6 +305,14 @@
   }
   var fitBtn = document.getElementById("topo-fit");
   if (fitBtn) fitBtn.addEventListener("click", fit);
+  var treeBtn = document.getElementById("topo-tree"), forceBtn = document.getElementById("topo-force");
+  function setLayoutMode(m) {
+    if (treeBtn) treeBtn.className = "btn btn-sm" + (m === "tree" ? " btn-primary" : "");
+    if (forceBtn) forceBtn.className = "btn btn-sm" + (m === "force" ? " btn-primary" : "");
+    applyLayout(m);
+  }
+  if (treeBtn) treeBtn.addEventListener("click", function () { setLayoutMode("tree"); });
+  if (forceBtn) forceBtn.addEventListener("click", function () { setLayoutMode("force"); });
   setTimeout(fit, 30);
 
   // export

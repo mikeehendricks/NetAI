@@ -4,6 +4,8 @@
 <div class="pagehead">
   <h1>Low-level topology - {{ p.name }}</h1>
   <div>
+    <button class="btn btn-sm btn-primary" id="topo-tree" type="button">Tree view</button>
+    <button class="btn btn-sm" id="topo-force" type="button">Force view</button>
     <button class="btn btn-sm" id="topo-fit" type="button">Fit view</button>
     <button class="btn btn-sm" id="topo-export" type="button">Export SVG</button>
     <a class="btn btn-sm" href="{{ url_for('main.project', pid=p.id) }}">Back to findings</a>
