@@ -76,7 +76,21 @@ esac
 say "installing system packages (python3, venv, git, curl)..."
 export DEBIAN_FRONTEND=noninteractive
 
-APT_PKGS="python3 python3-venv python3-pip git curl policykit-1"
+# polkit package name varies across releases:
+#   Ubuntu <= 24.04: policykit-1   |   Ubuntu 25.04+/Debian 13+: polkitd + pkexec
+POLKIT_PKGS=""
+if dpkg -s polkitd >/dev/null 2>&1; then
+  ok "polkit already installed (polkitd)"
+elif apt-cache show policykit-1 >/dev/null 2>&1; then
+  POLKIT_PKGS="policykit-1"
+elif apt-cache show polkitd >/dev/null 2>&1; then
+  POLKIT_PKGS="polkitd pkexec"
+else
+  warn "no polkit package found - the /admin self-update button will not work"
+  warn "install 'polkitd' (or 'policykit-1') manually for your release"
+fi
+
+APT_PKGS="python3 python3-venv python3-pip git curl $POLKIT_PKGS"
 
 # Corporate networks often route apt through a filtering proxy/IPS that can 403 package
 # downloads — detect and warn up front so failures are easy to diagnose.
