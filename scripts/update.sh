@@ -43,6 +43,13 @@ as_owner "$PY" -m pip install --quiet --upgrade pip
 as_owner "$PY" -m pip install --quiet -r requirements.txt
 log "dependencies OK"
 
+# Keep this script root-owned and non-writable by the service account (it is
+# executed by root via netai-update.service).
+if [ "$(id -u)" -eq 0 ]; then
+  chown root:root "$APP_DIR/scripts/update.sh" 2>/dev/null || true
+  chmod 755 "$APP_DIR/scripts/update.sh" 2>/dev/null || true
+fi
+
 # restart service if systemd manages it; otherwise remind the operator.
 # A plain `systemctl restart` from inside this script kills this script too
 # (systemd tears down the whole cgroup), so prefer a transient one-shot timer

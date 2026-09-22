@@ -17,8 +17,9 @@ repository owner directly.
 - Parameterized SQL (SQLAlchemy ORM), HTML auto-escaping (Jinja2), defusedxml for uploads
 - Upload validation: extension allow-list, size cap, binary sniffing, sanitized storage
 - Audit log of administrative actions
-- Hardened systemd unit (dedicated no-login user, NoNewPrivileges, ProtectSystem) and a
-  sudoers rule limited to the app's own update script
+- Hardened systemd unit (dedicated no-login user, NoNewPrivileges, ProtectSystem); the
+  self-update runs as a root systemd one-shot (`netai-update.service`) that only the app
+  user may start, via a polkit rule scoped to two unit names - no sudo, no setuid
 
 ## Deployment hardening checklist
 

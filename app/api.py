@@ -46,6 +46,10 @@ def live_sessions():
 
 
 # --------------------------------------------------------------------------- updater
+MARKER_TIMEOUT_SECONDS = 900  # hard cap: an update may never legitimately run longer
+UPDATE_UNIT = "netai-update.service"
+
+
 def _gh_headers():
     tok = current_app.config.get("GITHUB_TOKEN", "")
     h = {"Accept": "application/vnd.github+json", "User-Agent": "NetAI-updater"}
@@ -89,9 +93,6 @@ def update_check():
                     "commits": commits, "error": error, "running": update_running()})
 
 
-MARKER_TIMEOUT_SECONDS = 900  # hard cap: an update may never legitimately run longer
-
-
 def _marker_path():
     return Path(current_app.config["UPLOAD_FOLDER"]).parent / "update.running"
 
@@ -105,7 +106,7 @@ def _pid_alive(pid):
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True      # exists but owned by another user (e.g. root via sudo)
+        return True      # exists but owned by another user (e.g. root via systemd)
     except OSError:
         return False
 
@@ -123,18 +124,26 @@ def update_running():
         pid = int(data.get("pid", 0) or 0)
         started = float(data.get("started", 0) or 0)
     except (ValueError, OSError):
-        # legacy/plain-text marker: fall back to file age
+        # legacy/plain-text marker from an older version: always stale
+        marker.unlink(missing_ok=True)
+        return False
+    if started and (time.time() - started) > MARKER_TIMEOUT_SECONDS:
+        marker.unlink(missing_ok=True)
+        return False
+    if pid == -1:
+        # systemd-managed run: the one-shot unit state is the source of truth
         try:
-            started = marker.stat().st_mtime
-        except OSError:
-            marker.unlink(missing_ok=True)
-            return False
-    stale = (started and (time.time() - started) > MARKER_TIMEOUT_SECONDS) or not _pid_alive(pid)
-    if stale:
-        try:
-            marker.unlink(missing_ok=True)
-        except OSError:
+            r = subprocess.run(  # nosec B603 - fixed argv
+                ["systemctl", "is-active", UPDATE_UNIT],
+                capture_output=True, text=True, timeout=8)
+            if r.stdout.strip() == "active":
+                return True
+        except Exception:
             pass
+        marker.unlink(missing_ok=True)
+        return False
+    if not _pid_alive(pid):
+        marker.unlink(missing_ok=True)
         return False
     return True
 
@@ -155,16 +164,35 @@ def update_run():
         return jsonify({"ok": False, "error": f"Update script not found: {script}"}), 500
     logp = _update_log_path()
     marker = _marker_path()
+    systemctl = shutil.which("systemctl")
+    default_script = Path(_repo_root()) / "scripts" / "update.sh"
+
+    # Preferred path (production): systemd runs the root one-shot unit. This works
+    # even though the web service has NoNewPrivileges=true (sudo can never work
+    # there) because authorization is handled by polkit, not setuid.
+    if systemctl and script == default_script:
+        try:
+            r = subprocess.run(  # nosec B603 - fixed argv, no user input
+                [systemctl, "--no-block", "start", UPDATE_UNIT],
+                capture_output=True, text=True, timeout=15)
+            if r.returncode == 0:
+                logp.write_text("")
+                marker.write_text(json.dumps({"pid": -1, "started": time.time()}))
+                from .security import audit
+
+                audit("admin.update_run", "site update started via systemd unit")
+                return jsonify({"ok": True})
+        except Exception:
+            pass  # fall through to direct execution (dev/preview)
+
+    # Fallback (dev/preview or custom script): execute directly as the current user.
     try:
-        logp.write_text("")  # truncate
+        logp.write_text("")
         # guard against double-click races before the process exists
         marker.write_text(json.dumps({"pid": 0, "started": time.time()}))
-        # prefer sudo rule (production), fall back to direct exec (dev/preview)
-        sudo = shutil.which("sudo")
-        cmd = ([sudo, "-n", str(script)] if sudo else ["bash", str(script)])
         with open(logp, "ab") as lf:
-            proc = subprocess.Popen(  # nosec B603 - cmd is [sudo|-n|bash, script-from-config]; no user input
-                cmd, stdout=lf, stderr=subprocess.STDOUT,
+            proc = subprocess.Popen(  # nosec B603 - fixed argv from config; no user input
+                ["bash", str(script)], stdout=lf, stderr=subprocess.STDOUT,
                 start_new_session=True, cwd=str(_repo_root()))
         marker.write_text(json.dumps({"pid": proc.pid, "started": time.time()}))
     except Exception as e:
@@ -172,7 +200,7 @@ def update_run():
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
     from .security import audit
 
-    audit("admin.update_run", "site update initiated")
+    audit("admin.update_run", "site update started (direct)")
     return jsonify({"ok": True})
 
 

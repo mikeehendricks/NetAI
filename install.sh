@@ -76,7 +76,7 @@ esac
 say "installing system packages (python3, venv, git, curl)..."
 export DEBIAN_FRONTEND=noninteractive
 
-APT_PKGS="python3 python3-venv python3-pip git curl"
+APT_PKGS="python3 python3-venv python3-pip git curl policykit-1"
 
 # Corporate networks often route apt through a filtering proxy/IPS that can 403 package
 # downloads — detect and warn up front so failures are easy to diagnose.
@@ -250,12 +250,50 @@ ${UNIT_CAPS}
 [Install]
 WantedBy=multi-user.target
 EOF
-chmod 640 "$APP_DIR/scripts/update.sh"
+# Root one-shot unit that performs the self-update (started from /admin via
+# polkit - sudo can never work because the web service sets NoNewPrivileges).
+cat > /etc/systemd/system/netai-update.service <<EOF
+[Unit]
+Description=NetAI self-update (git pull, dependencies, service restart)
+After=network-online.target netai.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NETAI_DIR=$APP_DIR
+Environment=NETAI_BRANCH=$BRANCH
+EnvironmentFile=-$APP_DIR/.env
+ExecStart=$APP_DIR/scripts/update.sh
+StandardOutput=append:$APP_DIR/instance/update.log
+StandardError=append:$APP_DIR/instance/update.log
+TimeoutStartSec=900
+EOF
+
+chmod 755 "$APP_DIR/scripts/update.sh"
+chown root:root "$APP_DIR/scripts/update.sh"
+
+# polkit: the service account may manage ONLY these two units - the root
+# updater and its own app service. Nothing else, no shell, no setuid.
+mkdir -p /etc/polkit-1/rules.d
+cat > /etc/polkit-1/rules.d/45-netai-update.rules <<EOF
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "$SERVICE_USER") {
+        var unit = action.lookup("unit");
+        if (unit == "netai-update.service" || unit == "netai.service") {
+            return polkit.Result.YES;
+        }
+    }
+});
+EOF
+chmod 644 /etc/polkit-1/rules.d/45-netai-update.rules
+rm -f /etc/sudoers.d/netai-update   # legacy sudoers rule replaced by the above
 systemctl daemon-reload
 systemctl enable netai.service >/dev/null 2>&1 || true
 systemctl restart netai.service
 sleep 2
 systemctl is-active --quiet netai && ok "netai service is running" || { journalctl -u netai -n 30 --no-pager; die "service failed to start"; }
+ok "root update unit + polkit rule installed (sudoers no longer used)"
 
 # ---------------------------------------------------------------- firewall (best effort)
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
@@ -311,7 +349,7 @@ echo -e "    3. choose the admin username/password -> the key is then burned"
 echo -e "       and the /setup page is permanently disabled."
 echo
 echo -e "  Service:      systemctl {status|restart|stop} netai"
-echo -e "  Logs:         journalctl -u netai -f"
-echo -e "  Update site:  sign in as admin -> Admin -> Update -> 'Install update'"
+echo -e "  Logs:         journalctl -u netai -f   |   updates: /admin -> Update"
+echo -e "  Manual update: sudo bash $APP_DIR/scripts/update.sh"
 echo -e "  Uninstall:    sudo bash $APP_DIR/uninstall.sh"
 echo -e "${GREEN}==============================================================${NC}"

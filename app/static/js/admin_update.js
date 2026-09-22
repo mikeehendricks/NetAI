@@ -10,20 +10,40 @@
   var localEl = document.getElementById("local-sha");
   var logEl = document.getElementById("updatelog");
   var commitBody = document.querySelector("#committbl tbody");
+  var btnUpdate = document.getElementById("btn-update");
+  var btnCheck = document.getElementById("btn-check");
 
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+  function setInstallDisabled(disabled, reason) {
+    if (!btnUpdate) return;
+    btnUpdate.disabled = disabled;
+    btnUpdate.title = reason || "";
+  }
 
   function check() {
     stateEl.textContent = "checking…";
     fetch("/api/update-check", { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.error) { stateEl.textContent = "check failed: " + d.error; return; }
-        var behind = !d.up_to_date;
-        stateEl.innerHTML = d.remote
-          ? (behind ? '<span class="sevbadge sev-high">update available</span> remote <span class="mono">' + esc(d.remote) + "</span>"
-                    : '<span class="sevbadge sev-low">up to date</span> <span class="mono">' + esc(d.remote) + "</span>")
-          : "remote unknown";
+        if (d.error && !d.remote) {
+          stateEl.textContent = "check failed: " + d.error;
+          setInstallDisabled(false, "Could not verify the latest version - install anyway");
+          return;
+        }
+        if (d.running) {
+          stateEl.innerHTML = '<span class="sevbadge sev-medium">update running…</span>';
+          setInstallDisabled(true, "An update is currently in progress");
+        } else if (d.up_to_date) {
+          stateEl.innerHTML = '<span class="sevbadge sev-low">up to date</span> <span class="mono">' + esc(d.remote) + "</span>";
+          setInstallDisabled(true, "You are already running the latest version");
+        } else if (d.remote) {
+          stateEl.innerHTML = '<span class="sevbadge sev-high">update available</span> remote <span class="mono">' + esc(d.remote) + "</span>";
+          setInstallDisabled(false, "Install the latest version from GitHub");
+        } else {
+          stateEl.textContent = "remote version unknown";
+          setInstallDisabled(false, "Could not determine the remote version - install anyway");
+        }
         if (d.local) localEl.textContent = d.local;
         commitBody.innerHTML = "";
         if (!d.commits.length) commitBody.innerHTML = '<tr><td colspan="4" class="muted">No commits found.</td></tr>';
@@ -34,7 +54,10 @@
           commitBody.appendChild(tr);
         });
       })
-      .catch(function () { stateEl.textContent = "check failed (network error)"; });
+      .catch(function () {
+        stateEl.textContent = "check failed (network error)";
+        setInstallDisabled(false, "Could not reach the update service - install anyway");
+      });
   }
 
   function pollLog() {
@@ -44,19 +67,19 @@
         if (logEl) logEl.textContent = d.log || "(no output yet)";
         if (d.running) {
           stateEl.innerHTML = '<span class="sevbadge sev-medium">update running…</span>';
+          setInstallDisabled(true, "An update is currently in progress");
           setTimeout(pollLog, 2500);
-        } else if (logEl && logEl.textContent.indexOf("(idle)") !== 0) {
+        } else {
           check();
         }
       })
-      .catch(function () {});
+      .catch(function () { setTimeout(pollLog, 4000); });
   }
 
-  var btnCheck = document.getElementById("btn-check");
   if (btnCheck) btnCheck.addEventListener("click", check);
-  var btnUpdate = document.getElementById("btn-update");
   if (btnUpdate) {
     btnUpdate.addEventListener("click", function () {
+      if (btnUpdate.disabled) return;
       var msg = btnUpdate.getAttribute("data-confirm") || "Install update?";
       if (!window.confirm(msg)) return;
       btnUpdate.disabled = true;
@@ -66,12 +89,19 @@
         headers: { "X-CSRF-Token": csrf }
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {
-          btnUpdate.disabled = false;
-          if (!res.ok) { window.alert("Update failed to start: " + (res.j.error || "unknown error")); return; }
+          if (!res.ok) {
+            setInstallDisabled(false);
+            window.alert("Update failed to start: " + (res.j.error || "unknown error"));
+            return;
+          }
+          setInstallDisabled(true, "An update is currently in progress");
           stateEl.innerHTML = '<span class="sevbadge sev-medium">update running…</span>';
           pollLog();
         })
-        .catch(function () { btnUpdate.disabled = false; window.alert("Network error while starting update."); });
+        .catch(function () {
+          setInstallDisabled(false);
+          window.alert("Network error while starting update.");
+        });
     });
   }
 

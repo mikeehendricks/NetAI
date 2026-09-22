@@ -46,7 +46,9 @@ the parsed interfaces, VLANs, subnets and routes.
   login history.
 - **Site update from GitHub:** compares the running build with the latest commit on your
   GitHub repo, lists recent commits, and runs `scripts/update.sh` (git pull + dependency
-  install + service restart) via a locked-down sudoers rule.
+  install + service restart) through a root systemd one-shot unit authorized with a
+  scoped polkit rule - no sudo, and the button is disabled while you are on the latest
+  version.
 - Settings (self-registration toggle) and a full audit log.
 
 **3. Installer for Ubuntu Server**
@@ -99,9 +101,11 @@ the narrative and adds clearly-marked "AI observation" notes.
 ## Updating the site
 
 Sign in as admin → **Update**. The page shows the running build vs the latest commit on
-`GITHUB_REPO`/`GITHUB_BRANCH` (default `mikeehendricks/NetAI` @ `main`). Click
-*Install update* to run `scripts/update.sh` (git fetch/reset, pip install, systemd
-restart). The service account may execute only this script via `/etc/sudoers.d/netai-update`.
+`GITHUB_REPO`/`GITHUB_BRANCH` (default `mikeehendricks/NetAI` @ `main`); *Install update*
+is disabled while you are on the latest version. When clicked it starts
+`netai-update.service` (root one-shot → `scripts/update.sh`: git fetch/reset, pip install,
+service restart), which the `netai` service user may start via a polkit rule scoped to
+exactly two units. Works even though the web app runs with `NoNewPrivileges=true`.
 
 ## Configuration reference (`.env`)
 
