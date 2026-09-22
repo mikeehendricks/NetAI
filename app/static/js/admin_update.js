@@ -21,6 +21,8 @@
     btnUpdate.title = reason || "";
   }
 
+  var resultBadge = null;   // verdict from the last finished update run
+
   function check() {
     stateEl.textContent = "checking…";
     fetch("/api/update-check", { credentials: "same-origin" })
@@ -43,6 +45,10 @@
         } else {
           stateEl.textContent = "remote version unknown";
           setInstallDisabled(false, "Could not determine the remote version - install anyway");
+        }
+        if (resultBadge) {
+          stateEl.innerHTML = resultBadge;
+          resultBadge = null;
         }
         if (d.local) localEl.textContent = d.local;
         commitBody.innerHTML = "";
@@ -70,6 +76,16 @@
           setInstallDisabled(true, "An update is currently in progress");
           setTimeout(pollLog, 2500);
         } else {
+          var lg = d.log || "";
+          if (lg.indexOf("RESULT: UPDATE FAILED") !== -1) {
+            resultBadge = '<span class="sevbadge sev-high">update FAILED</span> <span class="muted">the site keeps running the current build - see the log below</span>';
+            setInstallDisabled(false);
+          } else if (lg.indexOf("RESULT: UPDATE INCOMPLETE") !== -1) {
+            resultBadge = '<span class="sevbadge sev-medium">update incomplete</span> <span class="muted">restart required - see the log below</span>';
+            setInstallDisabled(false);
+          } else if (lg.indexOf("RESULT: UPDATE SUCCESSFUL") !== -1) {
+            resultBadge = '<span class="sevbadge sev-low">update successful</span>';
+          }
           check();
         }
       })

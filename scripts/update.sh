@@ -26,12 +26,18 @@ log() { echo -e "[netai-update] $*"; }
 log "update started (pid $$ as $(id -un 2>/dev/null || echo ?) on $APP_DIR)"
 cd "$APP_DIR" || { log "ERROR: application directory $APP_DIR not found"; exit 1; }
 
-# Always clear the in-progress marker when the script ends (success or failure),
-# so the /admin update button can never get stuck on 'already in progress'.
-# Also remove the private self-copy (same PID after exec -> same path).
+# Verdict bookkeeping: UPDATE_RESULT is set on the happy paths; the EXIT trap
+# prints an explicit RESULT line no matter how the script ends, so the update
+# log ALWAYS ends with a clear success/failed verdict.
+UPDATE_RESULT=""
 cleanup() {
   rm -f "$APP_DIR/instance/update.running" 2>/dev/null || true
   rm -f "/tmp/.netai-update.$$.sh" 2>/dev/null || true
+  case "${UPDATE_RESULT}" in
+    ok)         log "RESULT: UPDATE SUCCESSFUL - running build ${NEW_SHA:-unknown}." ;;
+    incomplete) log "RESULT: UPDATE INCOMPLETE - new code ${NEW_SHA:-unknown} is on disk but not active; restart required (see above)." ;;
+    *)          log "RESULT: UPDATE FAILED - the site keeps running build ${OLD_SHA:-unknown}. See the errors above." ;;
+  esac
 }
 trap cleanup EXIT
 
@@ -52,11 +58,30 @@ if [ ! -d .git ]; then
   exit 1
 fi
 
+# Self-heal: earlier manual 'sudo git' runs can leave root-owned files inside
+# .git (and the worktree), which later makes the service user's fetch fail with
+# "insufficient permission for adding an object to repository database".
+# Everything here belongs to the app owner - give it back before git runs.
+if [ "$(id -u)" -eq 0 ] && [ "$OWNER" != "root" ] && command -v chown >/dev/null 2>&1; then
+  if chown -R "$OWNER" "$APP_DIR" >/dev/null 2>&1; then
+    log "fixed file ownership ($APP_DIR -> $OWNER)"
+  else
+    log "WARNING: could not fix file ownership - the update may fail below."
+  fi
+fi
+
 OLD_SHA="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 log "current commit: $OLD_SHA"
 log "fetching latest code..."
-as_owner git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
-as_owner git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
+if ! as_owner git -C "$APP_DIR" fetch origin "$BRANCH" --quiet; then
+  log "ERROR: could not download the latest code from GitHub (see the git errors above)."
+  log "       if the errors mention permissions, run once as root: chown -R $(stat -c '%U' "$APP_DIR" 2>/dev/null || echo netai) $APP_DIR"
+  exit 1
+fi
+if ! as_owner git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet; then
+  log "ERROR: downloaded the code but could not apply it to the working copy (see errors above)."
+  exit 1
+fi
 NEW_SHA="$(git -C "$APP_DIR" rev-parse --short HEAD)"
 log "now at: $NEW_SHA"
 
@@ -222,6 +247,7 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 \
          && systemd-run --quiet --on-active=3 systemctl restart netai >/dev/null 2>&1; then
         log "service restart scheduled (detached) - the Site-update page will show the new build in a few seconds."
         log "update complete - service restarted automatically; running build $NEW_SHA."
+        UPDATE_RESULT=ok
         exit 0
       fi
       log "WARNING: cannot detach the restart - this updater may be killed by it (the restart itself will still complete)."
@@ -296,6 +322,8 @@ fi
 
 if [ "$new_code_live" = "1" ]; then
   log "update complete - service restarted automatically; running build $NEW_SHA."
+  UPDATE_RESULT=ok
 else
   log "update complete - ACTION REQUIRED: restart the app to load build $NEW_SHA."
+  UPDATE_RESULT=incomplete
 fi
