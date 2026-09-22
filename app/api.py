@@ -189,6 +189,10 @@ def update_run():
     systemctl = shutil.which("systemctl")
     default_script = Path(_repo_root()) / "scripts" / "update.sh"
 
+    # Truncate the log up-front: every path below (unit or direct) starts a
+    # fresh, visible run.
+    logp.write_text("")
+
     # Preferred path (production): systemd runs the root one-shot unit. This works
     # even though the web service has NoNewPrivileges=true (sudo can never work
     # there) because authorization is handled by polkit, not setuid.
@@ -200,27 +204,66 @@ def update_run():
         except Exception:
             unit_installed = False
         if unit_installed:
+            note = ""
+            try:  # clear a stale 'failed' state so start cannot be refused
+                subprocess.run(  # nosec B603 - fixed argv
+                    [systemctl, "reset-failed", UPDATE_UNIT], capture_output=True, text=True, timeout=8)
+            except Exception:
+                pass
+            r = None
             try:
                 r = subprocess.run(  # nosec B603 - fixed argv, no user input
                     [systemctl, "--no-block", "start", UPDATE_UNIT],
                     capture_output=True, text=True, timeout=15)
-                if r.returncode == 0:
-                    logp.write_text("")
-                    marker.write_text(json.dumps({"pid": -1, "started": time.time()}))
+            except Exception as e:
+                note = f"systemctl error: {str(e)[:120]}"
+            if r is not None and r.returncode == 0:
+                marker.write_text(json.dumps({"pid": -1, "started": time.time()}))
+                # Verify the unit actually does something: a stale/broken unit
+                # that dies instantly would otherwise leave an empty log and a
+                # silent no-op ("no output yet") with no fallback.
+                deadline = time.time() + 6
+                alive = False
+                while time.time() < deadline:
+                    time.sleep(0.7)
+                    try:
+                        if logp.exists() and logp.stat().st_size > 0:
+                            alive = True
+                            break
+                    except OSError:
+                        pass
+                    try:
+                        state = subprocess.run(  # nosec B603 - fixed argv
+                            [systemctl, "is-active", UPDATE_UNIT],
+                            capture_output=True, text=True, timeout=8).stdout.strip()
+                        if state == "failed":
+                            break
+                    except Exception:
+                        break
+                if alive:
                     from .security import audit
 
                     audit("admin.update_run", "site update started via systemd unit")
                     return jsonify({"ok": True})
-            except Exception:
+                note = note or "the unit produced no output"
+            elif r is not None:
+                note = f"systemctl returned {r.returncode}"
+            # The unit path failed - say so in the log the admin is watching,
+            # then fall back to running the updater directly. update.sh is
+            # cgroup-aware: from inside the web app it schedules the service
+            # restart detached, so it can no longer be killed by its own
+            # restart (the old frozen-log failure mode).
+            try:
+                with open(logp, "ab") as lf:
+                    lf.write(f"[netai-update] NOTE: {UPDATE_UNIT} could not run"
+                             f"{(' - ' + note) if note else ''}.\n".encode())
+                    lf.write("[netai-update] Falling back to direct execution - "
+                             "the update will still complete.\n".encode())
+                    lf.write("[netai-update] To repair the service for future updates, run once as root: "
+                             "bash scripts/fix-update-service.sh\n".encode())
+                    lf.write(f"[netai-update] diagnose the unit with: journalctl -u {UPDATE_UNIT} -n 30\n".encode())
+            except OSError:
                 pass
-            # The unit exists but could not be started. NEVER fall back to
-            # running the script from inside the web app: the updater restarts
-            # netai.service, and a script running in netai.service's cgroup is
-            # KILLED by that very restart (updates freezing at "waiting for
-            # the new process" with no final log line).
-            return jsonify({"ok": False, "error":
-                "Could not start netai-update.service (systemd/polkit). Start it manually: "
-                "sudo systemctl start netai-update  - then check: journalctl -u netai-update -n 30"}), 500
 
     # Fallback (dev/preview or custom script): execute directly as the current user.
     try:

@@ -33,6 +33,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+log "update started (pid $$ as $(id -un 2>/dev/null || echo ?) on $APP_DIR)"
+
 # The repo belongs to the service user; when this script runs as root, drop to
 # the owner for git/pip so we never trip git's safe.directory protection and
 # never leave root-owned files inside the venv.
@@ -211,6 +213,20 @@ new_code_live=0
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 \
    && systemctl cat netai.service >/dev/null 2>&1; then
   log "restarting netai service via systemd..."
+  case "$( (cat /proc/self/cgroup 2>/dev/null) || true )" in
+    *netai.service*)
+      # We are running inside the web app's own cgroup (direct-execution
+      # fallback). The restart below would kill this updater mid-log, so
+      # schedule it detached and end the log with the final status instead.
+      if command -v systemd-run >/dev/null 2>&1 \
+         && systemd-run --quiet --on-active=3 systemctl restart netai >/dev/null 2>&1; then
+        log "service restart scheduled (detached) - the Site-update page will show the new build in a few seconds."
+        log "update complete - service restarted automatically; running build $NEW_SHA."
+        exit 0
+      fi
+      log "WARNING: cannot detach the restart - this updater may be killed by it (the restart itself will still complete)."
+      ;;
+  esac
   if command -v timeout >/dev/null 2>&1; then
     timeout -k 5 180 systemctl restart netai || true
   else
