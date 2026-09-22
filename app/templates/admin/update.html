@@ -17,7 +17,9 @@
               data-confirm="Pull the latest code and restart the site? Users may be interrupted.">Install update</button>
     </p>
     <p class="muted small">The update runs <span class="mono">scripts/update.sh</span> (git pull, dependency install,
-    service restart). Under systemd the service restarts automatically; in manual setups restart the process if asked.</p>
+    verified restart). When it finishes the service is restarted automatically and the restart is verified &mdash;
+    systemd restart, zero-downtime reload, or automatic relaunch &mdash; and the log states the running build. You
+    never need to restart anything by hand.</p>
   </div>
   <div class="card">
     <h2>Latest commits on {{ branch }}</h2>
