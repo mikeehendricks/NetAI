@@ -183,8 +183,14 @@ say "creating virtualenv and installing Python dependencies..."
 if [ ! -x .venv/bin/python3 ]; then
   python3 -m venv .venv
 fi
-.venv/bin/pip install --quiet --upgrade pip
-.venv/bin/pip install --quiet -r requirements.txt
+.venv/bin/pip install --quiet --disable-pip-version-check --retries 2 --timeout 15 --upgrade pip || true
+if ! .venv/bin/pip install --quiet --disable-pip-version-check --retries 2 --timeout 15 -r requirements.txt; then
+  echo "ERROR: pip could not reach pypi.org. On a filtering-proxy network add the"
+  echo "       proxy to the environment first, e.g.:"
+  echo "         export https_proxy=http://YOUR-PROXY:PORT"
+  echo "       then re-run: .venv/bin/pip install -r requirements.txt"
+  exit 1
+fi
 ok "python environment ready"
 
 # ---------------------------------------------------------------- secrets

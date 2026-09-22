@@ -34,7 +34,8 @@ if [ ! -d .git ]; then
   exit 1
 fi
 
-log "current commit: $(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+OLD_SHA="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+log "current commit: $OLD_SHA"
 log "fetching latest code..."
 as_owner git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
 as_owner git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
@@ -47,10 +48,47 @@ else
   PY="python3"
 fi
 
-log "installing dependencies..."
-as_owner "$PY" -m pip install --quiet --upgrade pip
-as_owner "$PY" -m pip install --quiet -r requirements.txt
-log "dependencies OK"
+# proxy settings from .env (filtered networks) - pip and git honor these
+if [ -f "$APP_DIR/.env" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in
+      http_proxy=*|https_proxy=*|HTTP_PROXY=*|HTTPS_PROXY=*|no_proxy=*|NO_PROXY=*|PIP_INDEX_URL=*|PIP_TRUSTED_HOST=*)
+        k=${line%%=*}
+        v=${line#*=}
+        v=${v%\"}; v=${v#\"}; v=${v%\'}; v=${v#\'}
+        export "$k=$v"
+        ;;
+    esac
+  done < "$APP_DIR/.env"
+fi
+
+# Only touch the network (pip) when requirements.txt actually changed in this
+# update. Routine updates then work with no internet access at all, and a
+# blocked/slow proxy can never wedge the update at "installing dependencies".
+REQ_CHANGED=0
+if [ "$OLD_SHA" != "$NEW_SHA" ]; then
+  git -C "$APP_DIR" diff --quiet "$OLD_SHA" "$NEW_SHA" -- requirements.txt || REQ_CHANGED=1
+fi
+if [ "$REQ_CHANGED" -eq 1 ]; then
+  log "requirements.txt changed in this update - installing dependencies..."
+  as_owner "$PY" -m pip install --quiet --disable-pip-version-check --upgrade pip \
+    || log "note: pip self-upgrade skipped (no access to pypi.org) - continuing"
+  if as_owner "$PY" -m pip install --quiet --disable-pip-version-check --retries 2 --timeout 15 -r requirements.txt; then
+    log "dependencies OK"
+  else
+    log "ERROR: dependency install failed - no route to pypi.org? (filtering proxy network)"
+    log "       fix: add a line 'https_proxy=http://YOUR-PROXY:PORT' to $APP_DIR/.env"
+    log "       then install manually:"
+    log "         cd $APP_DIR && sudo .venv/bin/pip install -r requirements.txt"
+    log "       then restart the app: sudo systemctl restart netai"
+    log "NOT restarting the service: the new code may need the new packages, and a"
+    log "restart now could take the site down. The running build stays in place."
+    exit 1
+  fi
+else
+  log "requirements unchanged - skipping dependency install (offline-safe)"
+fi
 
 # Keep this script root-owned and non-writable by the service account (it is
 # executed by root via netai-update.service).
