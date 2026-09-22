@@ -261,6 +261,7 @@ ExecStart=$APP_DIR/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 60 \
     --bind ${BIND_HOST}:${GW_PORT} --access-logfile - --error-logfile - wsgi:app
 Restart=always
 RestartSec=3
+TimeoutStopSec=45
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=true
@@ -287,6 +288,8 @@ ExecStart=$APP_DIR/scripts/update.sh
 StandardOutput=append:$APP_DIR/instance/update.log
 StandardError=append:$APP_DIR/instance/update.log
 TimeoutStartSec=900
+TimeoutStopSec=30
+KillMode=control-group
 EOF
 
 chmod 755 "$APP_DIR/scripts/update.sh"

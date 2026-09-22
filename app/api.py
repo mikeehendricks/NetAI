@@ -172,18 +172,33 @@ def update_run():
     # there) because authorization is handled by polkit, not setuid.
     if systemctl and script == default_script:
         try:
-            r = subprocess.run(  # nosec B603 - fixed argv, no user input
-                [systemctl, "--no-block", "start", UPDATE_UNIT],
-                capture_output=True, text=True, timeout=15)
-            if r.returncode == 0:
-                logp.write_text("")
-                marker.write_text(json.dumps({"pid": -1, "started": time.time()}))
-                from .security import audit
-
-                audit("admin.update_run", "site update started via systemd unit")
-                return jsonify({"ok": True})
+            unit_installed = subprocess.run(  # nosec B603 - fixed argv
+                [systemctl, "cat", UPDATE_UNIT], capture_output=True, text=True, timeout=8
+            ).returncode == 0
         except Exception:
-            pass  # fall through to direct execution (dev/preview)
+            unit_installed = False
+        if unit_installed:
+            try:
+                r = subprocess.run(  # nosec B603 - fixed argv, no user input
+                    [systemctl, "--no-block", "start", UPDATE_UNIT],
+                    capture_output=True, text=True, timeout=15)
+                if r.returncode == 0:
+                    logp.write_text("")
+                    marker.write_text(json.dumps({"pid": -1, "started": time.time()}))
+                    from .security import audit
+
+                    audit("admin.update_run", "site update started via systemd unit")
+                    return jsonify({"ok": True})
+            except Exception:
+                pass
+            # The unit exists but could not be started. NEVER fall back to
+            # running the script from inside the web app: the updater restarts
+            # netai.service, and a script running in netai.service's cgroup is
+            # KILLED by that very restart (updates freezing at "waiting for
+            # the new process" with no final log line).
+            return jsonify({"ok": False, "error":
+                "Could not start netai-update.service (systemd/polkit). Start it manually: "
+                "sudo systemctl start netai-update  - then check: journalctl -u netai-update -n 30"}), 500
 
     # Fallback (dev/preview or custom script): execute directly as the current user.
     try:

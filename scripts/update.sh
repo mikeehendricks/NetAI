@@ -6,6 +6,18 @@
 # script reports success. Invoked from /admin (netai-update.service) or manually.
 set -euo pipefail
 
+# Execute a private copy of ourselves: bash reads script files lazily, and the
+# `git reset --hard` below rewrites THIS file on updates that change update.sh -
+# without the copy, bash can end up parsing a half-rewritten script mid-run.
+if [ -z "${NETAI_SELF_EXEC:-}" ]; then
+  export NETAI_SELF_EXEC=1
+  _self="/tmp/.netai-update.$$.sh"
+  if cp -- "$0" "$_self" 2>/dev/null; then
+    exec bash "$_self" "$@"
+  fi
+  unset NETAI_SELF_EXEC
+fi
+
 APP_DIR="${NETAI_DIR:-/opt/netai}"
 BRANCH="${NETAI_BRANCH:-main}"
 cd "$APP_DIR"
@@ -195,9 +207,8 @@ new_code_live=0
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 \
    && systemctl cat netai.service >/dev/null 2>&1; then
   log "restarting netai service via systemd..."
-  if command -v systemd-run >/dev/null 2>&1 \
-     && systemd-run --quiet --on-active=2 systemctl restart netai >/dev/null 2>&1; then
-    log "restart scheduled (detached) - waiting for the new process..."
+  if command -v timeout >/dev/null 2>&1; then
+    timeout -k 5 180 systemctl restart netai || true
   else
     systemctl restart netai || true
   fi
@@ -206,7 +217,11 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 \
     log "service restarted automatically - new code is live (master pid $(app_master))."
   else
     log "restart did not take effect yet - retrying directly..."
-    systemctl restart netai || true
+    if command -v timeout >/dev/null 2>&1; then
+      timeout -k 5 120 systemctl restart netai || true
+    else
+      systemctl restart netai || true
+    fi
     if wait_for master_changed "$OLD_MASTER" 60; then
       new_code_live=1
       log "service restarted automatically - new code is live (master pid $(app_master))."
