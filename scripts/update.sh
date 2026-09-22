@@ -89,15 +89,16 @@ if [ "$new_code_live" != "1" ]; then
   #  2) the oldest pgrep match that is NOT a shell wrapper - wrappers that
   #     launched the app carry the same words on their command line, and
   #     HUP-ing one of those does nothing to the app.
-  GW_PORT="$(grep -E '^PORT=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')"
+  GW_PORT="$( (grep -E '^PORT=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]') || true )"
   GW_PORT="${GW_PORT:-8000}"
   master=""
   if command -v ss >/dev/null 2>&1; then
-    master="$( (ss -tlnp 2>/dev/null | awk -v p=":${GW_PORT}" '$4 ~ p' | grep -oP 'pid=\K[0-9]+' | head -1) || true )"
+    # workers inherit the master's listening socket - the OLDEST holder is the master
+    master="$( (ss -tlnp 2>/dev/null | awk -v p=":${GW_PORT}" '$4 ~ p' | grep -oP 'pid=\K[0-9]+' | sort -n | head -1) || true )"
   fi
   if [ -z "$master" ] && command -v pgrep >/dev/null 2>&1; then
     for p in $(pgrep -f 'gunicorn.*wsgi:app' 2>/dev/null); do
-      c="$(ps -o comm= -p "$p" 2>/dev/null)"
+      c="$( (ps -o comm= -p "$p" 2>/dev/null) || true )"
       case "$c" in
         bash|sh|dash|nohup) continue ;;
         *) master="$p"; break ;;
