@@ -200,11 +200,29 @@ def topology(pid):
     return render_template("topology.html", p=proj, topo=topo)
 
 
+def _fresh_summary(proj):
+    """Return the executive summary, regenerating it when it was produced by an
+    older app version. Keeps improved business-impact wording flowing to
+    existing projects without re-uploading; AI-enhanced text is preserved."""
+    from .analysis import summary as summary_mod
+
+    s = proj.summary or {}
+    if s.get("gen") == summary_mod.SUMMARY_GEN or not proj.findings:
+        return s
+    s2 = summary_mod.build(s.get("inventory_doc", ""), proj.devices, proj.findings,
+                           proj.risk_score, proj.grade)
+    if s.get("ai_markdown"):
+        s2["ai_markdown"] = s["ai_markdown"]      # never lose AI-enhanced content
+    proj.summary_json = json.dumps(s2)
+    db.session.commit()
+    return s2
+
+
 @bp.route("/project/<int:pid>/summary")
 @login_required
 def summary_view(pid):
     proj = _get_project_or_403(pid)
-    s = proj.summary
+    s = _fresh_summary(proj)
     md_html = None
     if proj.ai_enhanced and s.get("ai_markdown"):
         from .markdown_mini import md_to_html
@@ -228,7 +246,7 @@ def summary_enhance(pid):
     if not ai_mod.ai_available(cfg):
         flash("AI enhancement is not configured. Set AI_PROVIDER and the matching API key in the .env file.", "warn")
         return redirect(url_for("main.summary_view", pid=pid))
-    md = to_markdown(proj.summary)
+    md = to_markdown(_fresh_summary(proj))
     polished = ai_mod.enhance(cfg, proj.findings, md)
     if polished:
         s = proj.summary
@@ -332,7 +350,7 @@ def file_diff(pid, fid):
 @login_required
 def summary_md(pid):
     proj = _get_project_or_403(pid)
-    s = proj.summary
+    s = _fresh_summary(proj)
     md = s.get("ai_markdown") or to_markdown(s)
     import io
 
