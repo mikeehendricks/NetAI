@@ -97,11 +97,50 @@ wait_for() {   # wait_for <condition:master_changed|workers_changed> <old> <trie
     if [ "$mode" = "master_changed" ]; then
       if [ -n "$m" ] && [ "$m" != "$old" ] && kill -0 "$m" 2>/dev/null; then return 0; fi
     else
-      w="$(app_workers "$old" | tr '\n' ' ')"
+      # 'old' is the previous worker list; if the master died, fail fast
+      if [ -z "$m" ] || ! kill -0 "$m" 2>/dev/null; then return 1; fi
+      w="$(app_workers "$m" | tr '\n' ' ')"
       if [ -n "$w" ] && [ "$w" != "$old" ]; then return 0; fi
     fi
     i=$((i + 1))
   done
+  return 1
+}
+
+# Last-resort recovery: launch the app directly (used only if the restart AND
+# the graceful reload both failed, so the site would otherwise stay down).
+start_app_best_effort() {
+  local gunc m i=0 bind="0.0.0.0:${GW_PORT}"
+  if [ -x "$APP_DIR/.venv/bin/gunicorn" ]; then
+    gunc="$APP_DIR/.venv/bin/gunicorn"
+  else
+    gunc="$( (command -v gunicorn) || true )"
+  fi
+  if [ -z "$gunc" ]; then
+    log "ERROR: gunicorn not found - cannot auto-start the app."
+    return 1
+  fi
+  # if nginx proxies to us on loopback, keep that binding
+  if grep -q "proxy_pass http://127.0.0.1:${GW_PORT}" /etc/nginx/sites-enabled/netai 2>/dev/null; then
+    bind="127.0.0.1:${GW_PORT}"
+  fi
+  log "attempting automatic app launch (bind ${bind})..."
+  mkdir -p "$APP_DIR/instance"
+  if [ "$(id -u)" -eq 0 ] && [ "$OWNER" != root ] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$OWNER" -- sh -c "cd '$APP_DIR' && setsid nohup '$gunc' --workers 2 --threads 4 --timeout 60 --bind '$bind' wsgi:app >> '$APP_DIR/instance/gunicorn.log' 2>&1 &"
+  else
+    ( cd "$APP_DIR" && setsid nohup "$gunc" --workers 2 --threads 4 --timeout 60 --bind "$bind" wsgi:app >> "$APP_DIR/instance/gunicorn.log" 2>&1 & )
+  fi
+  while [ "$i" -lt 30 ]; do
+    sleep 1
+    m="$(app_master)"
+    if [ -n "$m" ] && kill -0 "$m" 2>/dev/null; then
+      log "app restarted automatically (master pid $m)."
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  log "ERROR: automatic app launch failed - see $APP_DIR/instance/gunicorn.log"
   return 1
 }
 
@@ -137,7 +176,12 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 \
       log "WARNING: service still runs the old process - falling back to a graceful reload."
     else
       log "ERROR: service not active after restart - check: journalctl -u netai -n 50"
-      exit 1
+      if start_app_best_effort; then
+        new_code_live=1
+        log "NOTE: app is running outside systemd - investigate the unit before the next update."
+      else
+        exit 1
+      fi
     fi
   fi
 elif [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
@@ -159,14 +203,21 @@ if [ "$new_code_live" != "1" ]; then
     elif kill -0 "$M" 2>/dev/null && [ -n "$(app_workers "$M")" ]; then
       new_code_live=1
       log "app reloaded automatically - new code is live."
+    elif start_app_best_effort; then
+      new_code_live=1
     else
-      log "ERROR: app did not survive the reload - start it again:"
+      log "ACTION REQUIRED: start the app manually:"
       log "    sudo systemctl start netai   # (after running install.sh)"
       exit 1
     fi
   else
-    log "the app is not running - nothing to restart."
-    log "start it with:  sudo systemctl start netai   # (after running install.sh)"
+    log "the app is not running - starting it automatically..."
+    if start_app_best_effort; then
+      new_code_live=1
+    else
+      log "ACTION REQUIRED: start the app manually:"
+      log "    sudo systemctl start netai   # (after running install.sh)"
+    fi
   fi
 fi
 
