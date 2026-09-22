@@ -50,26 +50,62 @@ if [ "$(id -u)" -eq 0 ]; then
   chmod 755 "$APP_DIR/scripts/update.sh" 2>/dev/null || true
 fi
 
-# restart service if systemd manages it; otherwise remind the operator.
-# A plain `systemctl restart` from inside this script kills this script too
-# (systemd tears down the whole cgroup), so prefer a transient one-shot timer
-# that lives outside the service's cgroup when systemd-run is available.
-if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q "^netai.service"; then
-  log "restarting netai service..."
-  if command -v systemd-run >/dev/null 2>&1 && systemd-run --quiet --on-active=2 systemctl restart netai >/dev/null 2>&1; then
-    log "restart scheduled (detached) - giving it 5s..."
-    sleep 5
+# ---------------------------------------------------------------------------
+# Load the new code: prefer the systemd unit; if there is no unit (or no
+# systemd at all, e.g. inside a container), gracefully reload the running
+# gunicorn master so manual setups also pick up the new version.
+# A plain `systemctl restart` from inside this script would kill this script
+# too (systemd tears down the whole cgroup), so prefer a detached timer.
+# ---------------------------------------------------------------------------
+new_code_live=0
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  if systemctl cat netai.service >/dev/null 2>&1; then
+    log "restarting netai service..."
+    if command -v systemd-run >/dev/null 2>&1 && systemd-run --quiet --on-active=2 systemctl restart netai >/dev/null 2>&1; then
+      log "restart scheduled (detached) - giving it 5s..."
+      sleep 5
+    else
+      systemctl restart netai || true
+      sleep 1
+    fi
+    if systemctl is-active --quiet netai; then
+      log "service restarted and active."
+      new_code_live=1
+    else
+      log "WARNING: service not active after restart — check: journalctl -u netai -n 50"
+      exit 1
+    fi
   else
-    systemctl restart netai || true
-    sleep 1
+    log "systemd is running but the netai unit is not installed."
+    log "run the installer once to install the service + the self-update unit:"
+    log "    cd ~/NetAI && git pull && sudo bash install.sh"
   fi
-  if systemctl is-active --quiet netai; then
-    log "service restarted and active."
-  else
-    log "WARNING: service not active after restart — check: journalctl -u netai -n 50"
-    exit 1
-  fi
-else
-  log "systemd unit not found — if you run the app manually, restart it now to load the new code."
 fi
-log "update complete."
+
+if [ "$new_code_live" != "1" ] && command -v pgrep >/dev/null 2>&1; then
+  # oldest matching process = the gunicorn master; HUP makes it reload workers
+  # gracefully with the new code (zero downtime).
+  master="$(pgrep -o -f 'gunicorn.*wsgi:app' 2>/dev/null || true)"
+  if [ -n "$master" ]; then
+    log "no systemd unit — gracefully reloading the running app (master pid $master)..."
+    kill -HUP "$master" 2>/dev/null || true
+    sleep 3
+    if kill -0 "$master" 2>/dev/null && pgrep -f 'gunicorn.*wsgi:app' >/dev/null 2>&1; then
+      log "app reloaded gracefully — new code is live (zero downtime)."
+      new_code_live=1
+    else
+      log "WARNING: app did not survive the reload — start it again:"
+      log "    sudo systemctl start netai   # (after running install.sh)"
+    fi
+  else
+    log "the app does not appear to be running."
+    log "start it with:  sudo systemctl start netai   # (after running install.sh)"
+  fi
+fi
+
+if [ "$new_code_live" = "1" ]; then
+  log "update complete — new code is live."
+else
+  log "update complete — ACTION REQUIRED: restart the app to load the new code."
+fi
