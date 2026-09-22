@@ -265,6 +265,10 @@ server {
     listen ${PORT};
     server_name _;
     client_max_body_size 30m;
+    # tolerate large Cookie/header sets (shared parent-domain cookies, VPN/proxy
+    # injected headers) - otherwise nginx answers 400 "Header Or Cookie Too Large"
+    large_client_header_buffers 8 32k;
+
     location / {
         proxy_pass http://127.0.0.1:${GW_PORT};
         proxy_set_header Host \$host;
