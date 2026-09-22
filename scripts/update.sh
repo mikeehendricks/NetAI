@@ -26,7 +26,11 @@ log() { echo -e "[netai-update] $*"; }
 
 # Always clear the in-progress marker when the script ends (success or failure),
 # so the /admin update button can never get stuck on 'already in progress'.
-cleanup() { rm -f "$APP_DIR/instance/update.running" 2>/dev/null || true; }
+# Also remove the private self-copy (same PID after exec -> same path).
+cleanup() {
+  rm -f "$APP_DIR/instance/update.running" 2>/dev/null || true
+  rm -f "/tmp/.netai-update.$$.sh" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 # The repo belongs to the service user; when this script runs as root, drop to
