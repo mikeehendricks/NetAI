@@ -38,6 +38,14 @@ def force_password_reset():
             return redirect(url_for("auth.account"))
 
 
+@bp.route("/favicon.ico")
+def favicon():
+    from flask import current_app, send_from_directory
+
+    return send_from_directory(current_app.static_folder, "img/logo.svg",
+                               mimetype="image/svg+xml", max_age=86400)
+
+
 @bp.route("/")
 @login_required
 def index():
@@ -65,8 +73,9 @@ def analyze_upload():
         if not check_csrf():
             abort(400, "Invalid CSRF token")
         files = request.files.getlist("configs")
-        if not files or all(f.filename in ("", None) for f in files):
-            flash("Select at least one configuration file.", "warn")
+        pasted = (request.form.get("config_text") or "").strip()
+        if (not files or all(f.filename in ("", None) for f in files)) and not pasted:
+            flash("Upload at least one configuration file, or paste a configuration in the box below the upload field.", "warn")
             return redirect(url_for("main.analyze_upload"))
         if len(files) > cfg["MAX_UPLOAD_FILES"]:
             flash(f"Too many files (max {cfg['MAX_UPLOAD_FILES']}).", "warn")
@@ -93,8 +102,13 @@ def analyze_upload():
                 rejected.append(f"{orig}: too large (>4M chars)")
                 continue
             items.append({"name": orig, "text": text})
+        if pasted:
+            if len(pasted) > 4_000_000:
+                rejected.append("pasted config: too large (>4M chars)")
+            else:
+                items.append({"name": "pasted-config.txt", "text": pasted})
         if not items:
-            flash("No valid configuration files uploaded. " + " ".join(rejected), "danger")
+            flash("No valid configuration files. " + " ".join(rejected), "danger")
             return redirect(url_for("main.analyze_upload"))
 
         # ---- run the analysis engine

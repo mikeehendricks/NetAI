@@ -2,7 +2,7 @@
 {% block title %}Diff {{ cf.orig_name }} - {{ site_name }}{% endblock %}
 {% block content %}
 <div class="pagehead">
-  <h1>Improved config diff - {{ cf.orig_name }} <span class="muted">({{ cf.vendor }})</span></h1>
+  <h1>Improved config diff - {{ cf.orig_name }} <span class="muted">({{ cf.vendor|vendor_label }})</span></h1>
   <a class="btn" href="{{ url_for('main.file_improved', pid=cf.project_id, fid=cf.id) }}">Download improved file</a>
 </div>
 <div class="card">

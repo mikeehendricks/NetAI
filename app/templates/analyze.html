@@ -5,17 +5,21 @@
 <div class="grid2">
   <div class="card">
     <h2>Upload configuration files</h2>
-    <p class="muted">Upload one or more device configurations. The vendor is auto-detected, then the engine runs
-       hardening checks, produces improvement recommendations with generated config fixes, a low-level topology
-       map and an executive summary.</p>
-    <form method="post" action="{{ url_for('main.analyze_upload') }}" enctype="multipart/form-data">
+    <p class="muted">Upload device configuration files &mdash; or paste a configuration in the box below. The vendor is
+       auto-detected, then the engine runs hardening checks, produces improvement recommendations with generated
+       config fixes, a low-level topology map and an executive summary.</p>
+    <form method="post" action="{{ url_for('main.analyze_upload') }}" enctype="multipart/form-data" id="analyze-form" data-busylabel="Analyzing&hellip;">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <label for="project_name">Project name (optional)</label>
       <input id="project_name" name="project_name" maxlength="120" placeholder="e.g. HQ firewall audit">
       <label for="configs">Configuration files (max {{ max_files }}, {{ max_mb }} MB each, plain text)</label>
-      <input id="configs" name="configs" type="file" multiple required
+      <input id="configs" name="configs" type="file" multiple 
              accept=".txt,.cfg,.conf,.running,.xml,.set,.log">
       <div id="filelist" class="muted small"></div>
+      <label for="config_text">&hellip;or paste a configuration (running-config / set / XML)</label>
+      <textarea id="config_text" name="config_text" rows="10" style="width:100%;font-family:ui-monospace,monospace;font-size:12px;"
+                placeholder="Paste a device configuration here if you have no file at hand&hellip;"></textarea>
+      <div id="analyze-error" class="alert alert-danger" style="display:none;"></div>
       <button class="btn btn-primary" type="submit">Run analysis</button>
     </form>
   </div>

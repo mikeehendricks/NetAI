@@ -31,7 +31,7 @@
     {% for f in p.files %}
       <tr>
         <td><strong>{{ f.hostname or '(unnamed)' }}</strong></td>
-        <td>{{ f.vendor }}</td>
+        <td>{{ f.vendor|vendor_label }}</td>
         <td class="mono">{{ f.orig_name }}</td>
         <td class="muted">{{ f.size }} bytes</td>
         <td>

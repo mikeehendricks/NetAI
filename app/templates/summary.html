@@ -74,7 +74,7 @@
       <thead><tr><th>Device</th><th>Vendor</th><th>Role</th><th>Intf</th><th>VLANs</th><th>Risk</th></tr></thead>
       <tbody>
       {% for d in s.devices %}
-      <tr><td>{{ d.hostname }}</td><td>{{ d.vendor }}</td><td>{{ d.kind }}</td>
+      <tr><td>{{ d.hostname }}</td><td>{{ d.vendor|vendor_label }}</td><td>{{ d.kind }}</td>
           <td>{{ d.interfaces }}</td><td>{{ d.vlans }}</td><td>{{ d.score }}/100</td></tr>
       {% endfor %}
       </tbody>

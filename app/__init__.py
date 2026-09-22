@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from config import Config
+from config import APP_VERSION, Config
 
 log = logging.getLogger("netai")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -92,6 +92,54 @@ def create_app(config_object=Config):
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(api_bp, url_prefix="/api")
 
+    # ------------------------------------------------------------------ template filters
+    @app.template_filter("vendor_label")
+    def _vendor_label(v):
+        from .analysis.engine import VENDOR_LABEL as VENDOR_LABELS
+
+        return VENDOR_LABELS.get((v or "").lower(), v or "Unknown")
+
+    # ------------------------------------------------------------------ friendly error pages
+    from flask import jsonify, render_template
+
+    def _api():
+        return request.path.startswith("/api/")
+
+    @app.errorhandler(400)
+    def _err_bad_request(e):
+        if _api():
+            return jsonify(error="bad request"), 400
+        return render_template("error.html", code=400,
+                               message=getattr(e, "description", None) or "The request could not be processed."), 400
+
+    @app.errorhandler(403)
+    def _err_forbidden(e):
+        if _api():
+            return jsonify(error="forbidden"), 403
+        return render_template("error.html", code=403,
+                               message="You don't have access to this page. Ask an administrator if you think this is a mistake."), 403
+
+    @app.errorhandler(404)
+    def _err_not_found(e):
+        if _api():
+            return jsonify(error="not found"), 404
+        return render_template("error.html", code=404,
+                               message="That page doesn't exist. It may have been deleted, or the link is wrong."), 404
+
+    @app.errorhandler(413)
+    def _err_too_large(e):
+        if _api():
+            return jsonify(error="payload too large"), 413
+        return render_template("error.html", code=413,
+                               message="That upload is too large. Please split it into smaller files."), 413
+
+    @app.errorhandler(500)
+    def _err_internal(e):
+        if _api():
+            return jsonify(error="internal error"), 500
+        return render_template("error.html", code=500,
+                               message="Something went wrong on our side. Please try again - if it keeps happening, contact an administrator."), 500
+
     # runtime version stamp (git describe) for the admin update page
     try:
         import subprocess  # nosec B404 - fixed argv, no user input
@@ -101,8 +149,11 @@ def create_app(config_object=Config):
             capture_output=True, text=True, timeout=5,
         )
         if sha.returncode == 0:
-            app.config["SITE_VERSION"] = sha.stdout.strip()
+            app.config["SITE_VERSION"] = f"v{APP_VERSION} (build {sha.stdout.strip()})"
+        else:
+            app.config["SITE_VERSION"] = f"v{APP_VERSION} (build unknown)"
     except Exception as e:
         log.debug("version stamp failed: %s", e)
+        app.config["SITE_VERSION"] = f"v{APP_VERSION}"
 
     return app

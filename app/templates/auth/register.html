@@ -15,6 +15,7 @@
     <input id="password2" name="password2" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
     <button class="btn btn-primary btn-block" type="submit">Register</button>
   </form>
+  <p class="muted small">Registration creates a standard <strong>Analyst</strong> account (your own projects only). Administrators provision and manage accounts.</p>
   <p class="muted small">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
 </div>
 {% endblock %}

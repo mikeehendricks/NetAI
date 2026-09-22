@@ -26,6 +26,10 @@ def _bool(name, default=False):
     return v.strip().lower() in ("1", "true", "yes", "on")
 
 
+# Human-readable application version. Bump on every release; shown in the site
+# footer, on the admin update page, and stamped into error reports.
+APP_VERSION = "1.2.0"
+
 class Config:
     SECRET_KEY = _env("SECRET_KEY")
     if not SECRET_KEY:
