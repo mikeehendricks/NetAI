@@ -60,7 +60,9 @@
   <span>{{ site_name }} &middot; AI-powered network configuration intelligence</span>
   {% if site_version %}<span class="muted mono">{{ site_version }}</span>{% endif %}
 </footer>
+<script src="{{ url_for('static', filename='js/anime.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/motion.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
