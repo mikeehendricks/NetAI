@@ -4,12 +4,19 @@
 <div class="pagehead">
   <h1>Executive summary - {{ p.name }}</h1>
   <div>
+    {% if ai_ready %}
     <form method="post" action="{{ url_for('main.summary_enhance', pid=p.id) }}" class="inlineform">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <button class="btn btn-sm{{ '' if p.ai_enhanced else ' btn-primary' }}" type="submit">
         {{ 'Re-run AI enhancement' if p.ai_enhanced else 'Enhance with AI' }}
       </button>
     </form>
+    {% else %}
+    <span class="pill pill-warn" title="Set AI_PROVIDER and an API key in /opt/netai/.env, then restart the service">AI enhancement not configured</span>
+    {% if session.get('role') == 'admin' %}
+    <a class="btn btn-sm" href="{{ url_for('admin.settings') }}">How to enable</a>
+    {% endif %}
+    {% endif %}
     <a class="btn btn-sm" href="{{ url_for('main.summary_md', pid=p.id) }}">Download .md</a>
     <button class="btn btn-sm print-btn" type="button">Print / PDF</button>
   </div>
@@ -74,15 +81,29 @@
     </table>
   </div>
   <div class="card">
-    <h2>Remediation roadmap</h2>
+    <h2>Remediation roadmap &mdash; with config fixes</h2>
+    <p class="muted small">Each item lists what it means for the business and the actual configuration to apply.
+       Review before applying to live devices.</p>
     {% for phase, items in s.roadmap.items() %}
       {% if items %}
       <h3 class="roadmap-phase">{{ phase }}</h3>
       <ul>
         {% for it in items[:12] %}
-        <li><span class="sevbadge sev-{{ it.severity }}">{{ it.severity }}</span>
-            {{ it.rule }} {{ it.title }} <span class="muted small">({{ it.device }}{{ ', auto-fix' if it.auto_fixable }})</span></li>
+        <li>
+          <span class="sevbadge sev-{{ it.severity }}">{{ it.severity }}</span>
+          <strong>{{ it.rule }} {{ it.title }}</strong>
+          <span class="muted small">({{ it.device }}{{ ', auto-fix' if it.auto_fixable }})</span>
+          {% if it.impact %}<div class="small">{{ it.impact }}</div>{% endif %}
+          {% if it.rec %}<div class="small"><strong>Fix:</strong> {{ it.rec }}</div>{% endif %}
+          {% if it.config %}
+          <details class="fixdetails">
+            <summary class="small">Show config to apply</summary>
+            <pre class="code">{{ it.config }}</pre>
+          </details>
+          {% endif %}
+        </li>
         {% endfor %}
+        {% if items|length > 12 %}<li class="muted small">+ {{ items|length - 12 }} more in this phase</li>{% endif %}
       </ul>
       {% endif %}
     {% endfor %}

@@ -2,6 +2,20 @@
 {% block title %}Users - {{ site_name }} admin{% endblock %}
 {% block content %}
 <h1>User management</h1>
+
+<div class="card">
+  <h2>Add analyst user</h2>
+  <p class="muted small">Creates a normal (Analyst) account: can upload configs, run analyses, and view
+     findings/topology/summaries for their own projects. All admin functions are hidden and blocked for this role.</p>
+  <form method="post" action="{{ url_for('admin.users_add') }}" class="filterbar">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="text" name="username" placeholder="username" minlength="3" maxlength="64"
+           pattern="[a-zA-Z0-9._@-]{3,64}" required>
+    <input type="password" name="password" placeholder="initial password (blank = auto-generate)" minlength="10" maxlength="128" autocomplete="new-password">
+    <button class="btn btn-primary btn-sm" type="submit">Create user</button>
+  </form>
+</div>
+
 <div class="card">
   <form method="get" class="filterbar">
     <input type="text" name="q" value="{{ q }}" placeholder="Search username..." maxlength="64">
@@ -15,7 +29,9 @@
     <tbody>
     {% for u in users %}
     <tr class="{{ 'row-dim' if not u.is_active }}">
-      <td><strong>{{ u.username }}</strong>{% if u.must_reset %} <span class="pill pill-warn">temp pw</span>{% endif %}</td>
+      <td><strong>{{ u.username }}</strong>
+          <span class="pill {{ 'pill-danger' if u.role == 'admin' else 'pill-ok' }}">{{ 'Administrator' if u.role == 'admin' else 'Analyst' }}</span>
+          {% if u.must_reset %} <span class="pill pill-warn">temp pw</span>{% endif %}</td>
       <td>{{ u.role }}</td>
       <td>{{ 'active' if u.is_active else 'disabled' }}{% if u.is_locked %} <span class="pill pill-danger">locked</span>{% endif %}</td>
       <td class="muted">{{ u.created_at.strftime('%Y-%m-%d') }}</td>

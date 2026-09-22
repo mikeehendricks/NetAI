@@ -248,6 +248,20 @@ def main():
     check("IDOR: user cannot read realtime sessions API", st in (403, 302), f"got {st}")
     st, _, _ = user.get("/api/update-check")
     check("user cannot check updates", st in (403, 302), f"got {st}")
+    get_csrf(user, "/analyze")
+    st, _, _ = user.post("/admin/users/add", data={"username": "haxxxx", "password": ""})
+    check("user cannot create accounts", st == 403, f"got {st}")
+    st, _, _ = user.post("/admin/settings", data={"allow_signup": "off"})
+    check("user cannot change site settings", st == 403, f"got {st}")
+
+    # phase 7b: admin provisions an analyst account
+    get_csrf(admin, "/admin/users")
+    st, _, _ = admin.post("/admin/users/add", data={"username": "analyst1", "password": ""})
+    check("admin can create analyst accounts", st == 302, f"got {st}")
+    st, users_html, _ = admin.get("/admin/users")
+    check("new analyst appears in user list", b"analyst1" in users_html, f"got {st}")
+    st, _, _ = user.post("/admin/users/add", data={"username": "haxxxx2", "password": ""})
+    check("analyst cannot create accounts (403)", st == 403, f"got {st}")
 
     # ---------------------------------------------------------------- phase 8: open redirect
     o = Client()

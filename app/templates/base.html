@@ -29,6 +29,7 @@
       {% endif %}
       <span class="navsep"></span>
       <a href="{{ url_for('auth.account') }}" class="{{ 'active' if request.endpoint=='auth.account' }}">&#128100; {{ session.get('username') }}</a>
+      <span class="pill {{ 'pill-danger' if session.get('role')=='admin' else 'pill-ok' }}">{{ 'Administrator' if session.get('role')=='admin' else 'Analyst' }}</span>
       <form method="post" action="{{ url_for('auth.logout') }}" class="inlineform">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <button class="btn btn-ghost btn-sm" type="submit">Sign out</button>

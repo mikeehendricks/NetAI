@@ -196,7 +196,10 @@ def summary_view(pid):
         from .markdown_mini import md_to_html
 
         md_html = md_to_html(s["ai_markdown"])
-    return render_template("summary.html", p=proj, s=s, md_html=md_html)
+    from .analysis import ai as ai_mod
+
+    ai_ready = ai_mod.ai_available(current_app.config)
+    return render_template("summary.html", p=proj, s=s, md_html=md_html, ai_ready=ai_ready)
 
 
 @bp.route("/project/<int:pid>/summary/enhance", methods=["POST"])

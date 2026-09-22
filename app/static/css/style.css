@@ -116,6 +116,10 @@ button.btn { -webkit-appearance: none; }
 .pill { font-size: .68rem; border-radius: 999px; padding: .05rem .45rem; font-weight: 700; }
 .pill-warn { background: #453a0c; color: #fde047; }
 .pill-danger { background: #4c1122; color: #fda4af; }
+.pill-ok { background: #0b2e1c; color: #86efac; }
+.fixdetails { margin: .3rem 0 .2rem; }
+.fixdetails summary { cursor: pointer; color: var(--accent); }
+.fixdetails pre { margin: .3rem 0 0; }
 
 /* alerts */
 .flashes { margin-top: 1rem; }

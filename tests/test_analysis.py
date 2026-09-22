@@ -73,6 +73,26 @@ class TestEngine(unittest.TestCase):
         self.assertIn("Executive Summary", md)
         self.assertIn("Remediation roadmap", md)
 
+    def test_executive_impact_wording(self):
+        s = self.res["summary"]
+        for t in s["top_risks"]:
+            self.assertTrue(t.get("impact"), f"missing impact for {t['title']}")
+            self.assertNotIn("Direct path to compromise", t["impact"])  # old generic wording gone
+        impacts = " ".join(t["impact"] for t in s["top_risks"])
+        self.assertGreater(len(impacts), 80)
+
+    def test_roadmap_includes_config_fixes(self):
+        s = self.res["summary"]
+        items = [it for phase in s["roadmap"].values() for it in phase]
+        self.assertTrue(items)
+        with_config = [it for it in items if it.get("config")]
+        self.assertGreater(len(with_config), 5)      # auto-fixable items carry real config lines
+        for it in with_config:
+            self.assertTrue(it["config"].strip())
+        md = to_markdown(s)
+        self.assertIn("Config fix", md)
+        self.assertIn("```", md)
+
     def test_improved_configs_generated(self):
         for pf in self.res["per_file"]:
             mod = engine.VENDOR_MODULES[pf["vendor"]]

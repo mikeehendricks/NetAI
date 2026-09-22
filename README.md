@@ -22,8 +22,10 @@ the parsed interfaces, VLANs, subnets and routes.
 - **Config improvement:** downloadable improved configs (safe line transforms + appended
   remediation blocks) with an on-screen unified diff against the original.
 - **Executive summary:** risk score (0-100) + grade, severity breakdown, top risks with
-  business impact, device inventory and a phased remediation roadmap — printable to PDF,
-  downloadable as Markdown. Optional **LLM narration** (OpenAI/Anthropic/compatible) via
+  plain-English business impact written for executives (per rule, e.g. what a firewall
+  takeover means for the company), device inventory, and a phased remediation roadmap
+  that **includes the actual configuration lines to apply** for each risk — printable to
+  PDF, downloadable as Markdown. Optional **LLM narration** (OpenAI/Anthropic/compatible) via
   one click when an API key is configured — the engine works fully offline without it.
 - **Low-level topology:** interactive SVG map (drag, zoom, tooltips, VLAN colour coding,
   export to SVG) built from parsed interfaces, IPs, VLANs, static/default routes — with
@@ -34,8 +36,11 @@ the parsed interfaces, VLANs, subnets and routes.
   `/setup` accepts it exactly once, then is permanently disabled.
 - User statistics: totals, logins 24h/7d, projects, findings by severity, logins-per-day
   chart, top access countries.
-- User management: search, reset password (one-time temp password + forced change),
-  enable/disable, promote/demote, delete.
+- User management: **add analyst users** (auto-generated one-time password, forced change at
+  first login), search, password reset, enable/disable, promote/demote, delete. Analysts get
+  full analysis functionality and are blocked from every admin function (server-enforced).
+- **AI integration status** panel with copy-paste setup instructions; the "Enhance with AI"
+  button only appears once configured.
 - **Realtime user map:** active sessions in the last 5 minutes with public IP and
   geolocated city/country, plotted on a world map, auto-refreshing every 10 s; plus recent
   login history.

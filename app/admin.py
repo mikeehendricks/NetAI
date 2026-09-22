@@ -75,6 +75,46 @@ def users():
     return render_template("admin/users.html", users=users, q=q)
 
 
+@bp.route("/users/add", methods=["POST"])
+@admin_required
+def users_add():
+    """Provision a normal (Analyst) user account. Password can be supplied by the
+    admin or auto-generated (shown once, user must change it at first login)."""
+    if not check_csrf():
+        abort(400, "Invalid CSRF token")
+    from .auth import USERNAME_RE, _validate_password
+
+    username = (request.form.get("username") or "").strip()
+    pw = request.form.get("password") or ""
+    if not USERNAME_RE.match(username):
+        flash("Username must be 3-64 chars: letters, digits, dot, dash, underscore or @.", "danger")
+        return redirect(url_for("admin.users"))
+    if db.session.query(User.id).filter(User.username == username).first():
+        flash(f"Username '{username}' already exists.", "warn")
+        return redirect(url_for("admin.users"))
+    if pw:
+        err = _validate_password(pw)
+        if err:
+            flash(f"Password not accepted: {err}", "danger")
+            return redirect(url_for("admin.users"))
+        must_reset = False
+    else:
+        pw = gen_tmp_password()
+        must_reset = True
+    u = User(username=username, role="user")
+    u.set_password(pw)
+    u.must_reset = must_reset
+    db.session.add(u)
+    db.session.commit()
+    audit("admin.user_add", username)
+    if must_reset:
+        flash(f"Analyst account created for {username}. One-time password: {pw} "
+              f"(shown once - the user must set a new password at first login)", "success")
+    else:
+        flash(f"Analyst account created for {username} with the password you supplied.", "success")
+    return redirect(url_for("admin.users"))
+
+
 @bp.route("/users/<int:uid>/reset", methods=["POST"])
 @admin_required
 def user_reset(uid):
@@ -182,8 +222,19 @@ def settings():
         audit("admin.settings", f"allow_signup={allow}")
         flash("Settings saved.", "success")
         return redirect(url_for("admin.settings"))
+    from .analysis import ai as ai_mod
+
+    cfg = current_app.config
+    provider = (cfg.get("AI_PROVIDER") or "").lower()
+    ai_status = {
+        "provider": cfg.get("AI_PROVIDER") or "",
+        "available": ai_mod.ai_available(cfg),
+        "model": cfg.get("ANTHROPIC_MODEL") if provider == "anthropic" else cfg.get("OPENAI_MODEL"),
+        "key_set": bool(cfg.get("ANTHROPIC_API_KEY") if provider == "anthropic" else cfg.get("OPENAI_API_KEY")),
+    }
     return render_template("admin/settings.html",
-                           allow_signup=Setting.get("allow_signup", "1") == "1")
+                           allow_signup=Setting.get("allow_signup", "1") == "1",
+                           ai_status=ai_status)
 
 
 @bp.route("/audit")

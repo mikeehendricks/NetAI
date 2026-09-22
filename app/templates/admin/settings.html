@@ -2,16 +2,46 @@
 {% block title %}Settings - {{ site_name }} admin{% endblock %}
 {% block content %}
 <h1>Site settings</h1>
-<div class="card narrow">
-  <form method="post" action="{{ url_for('admin.settings') }}">
-    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-    <label class="checkrow">
-      <input type="checkbox" name="allow_signup" {{ 'checked' if allow_signup }}>
-      <span>Allow public self-registration</span>
-    </label>
-    <p class="muted small">When off, only admins can create accounts (promote an existing user, or disable this
-       after onboarding). The administrator account itself is created once via the one-time setup page.</p>
-    <button class="btn btn-primary" type="submit">Save settings</button>
-  </form>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Registration</h2>
+    <form method="post" action="{{ url_for('admin.settings') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label class="checkrow">
+        <input type="checkbox" name="allow_signup" {{ 'checked' if allow_signup }}>
+        <span>Allow public self-registration</span>
+      </label>
+      <p class="muted small">When off, only admins can create accounts — use the
+         <a href="{{ url_for('admin.users') }}">Add analyst user</a> form on the Users page
+         (each new user gets a one-time password and is forced to set their own at first login).
+         Analysts can never reach any /admin function.</p>
+      <button class="btn btn-primary" type="submit">Save settings</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>AI enhancement (executive summary)</h2>
+    {% if ai_status.available %}
+      <p><span class="pill pill-ok">configured</span> provider <strong>{{ ai_status.provider }}</strong>
+         &middot; model <strong>{{ ai_status.model }}</strong></p>
+      <p class="muted small">The &ldquo;Enhance with AI&rdquo; button on project executive summaries is live.</p>
+    {% else %}
+      <p><span class="pill pill-warn">not configured</span> — the site works fully without it; the
+         &ldquo;Enhance with AI&rdquo; button only appears once this is set up.</p>
+      <p>To enable, add these lines to <span class="mono">/opt/netai/.env</span> and restart
+         (<span class="mono">sudo systemctl restart netai</span>):</p>
+      <pre class="code"># OpenAI (or any OpenAI-compatible provider)
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+
+# — or Anthropic —
+# AI_PROVIDER=anthropic
+# ANTHROPIC_API_KEY=sk-ant-...
+# ANTHROPIC_MODEL=claude-sonnet-4-20250514</pre>
+      <p class="muted small">Keys stay in the .env file (root-only) and are never stored in the database or shown in the UI.</p>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}
