@@ -23,6 +23,31 @@
 
   var resultBadge = null;   // verdict from the last finished update run
 
+  function showUpdateDone(sha) {
+    var done = document.getElementById("update-done");
+    if (done) {
+      done.style.display = "";
+      done.innerHTML = '<strong>Update completed successfully.</strong> New build <span class="mono">' +
+        esc(sha) + '</span> is live &mdash; reloading this page&hellip;';
+    }
+    if (stateEl) stateEl.innerHTML = '<span class="sevbadge sev-low">update successful</span>';
+    // Wait until the restarted service answers, then reload so the page shows
+    // the new build/version. Falls back to a plain reload after ~40s whatever happens.
+    var tries = 0;
+    (function ping() {
+      tries++;
+      fetch(window.location.pathname, { cache: "no-store", credentials: "same-origin" })
+        .then(function (r) {
+          if (r.ok || tries > 40) { window.location.reload(); return; }
+          setTimeout(ping, 1000);
+        })
+        .catch(function () {
+          if (tries > 40) { window.location.reload(); return; }
+          setTimeout(ping, 1000);
+        });
+    })();
+  }
+
   function check() {
     stateEl.textContent = "checking…";
     fetch("/api/update-check", { credentials: "same-origin" })
@@ -77,14 +102,17 @@
           setTimeout(pollLog, 2500);
         } else {
           var lg = d.log || "";
+          var mOk = lg.match(/RESULT: UPDATE SUCCESSFUL - running build ([0-9a-f]+)/i);
           if (lg.indexOf("RESULT: UPDATE FAILED") !== -1) {
             resultBadge = '<span class="sevbadge sev-high">update FAILED</span> <span class="muted">the site keeps running the current build - see the log below</span>';
             setInstallDisabled(false);
           } else if (lg.indexOf("RESULT: UPDATE INCOMPLETE") !== -1) {
             resultBadge = '<span class="sevbadge sev-medium">update incomplete</span> <span class="muted">restart required - see the log below</span>';
             setInstallDisabled(false);
-          } else if (lg.indexOf("RESULT: UPDATE SUCCESSFUL") !== -1) {
+          } else if (mOk) {
             resultBadge = '<span class="sevbadge sev-low">update successful</span>';
+            showUpdateDone(mOk[1]);
+            return;   // banner shown; page reloads once the new build answers
           }
           check();
         }
