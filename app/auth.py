@@ -104,12 +104,28 @@ def setup():
                            username=request.form.get("username", "")), (200 if not error else 400)
 
 
+def _safe_next(target):
+    """Return a safe same-origin redirect target, or None. Rejects
+    protocol-relative URLs ('//evil.com', '////evil.com' - both are treated as
+    external by browsers), backslash tricks and absolute URLs."""
+    if not target:
+        return None
+    t = target.strip()
+    if not t.startswith("/") or t.startswith("//") or chr(92) in t:
+        return None
+    from urllib.parse import urlsplit
+
+    if urlsplit(t).netloc:        # anything with an authority is external
+        return None
+    return t
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if not admin_exists():
         return redirect(url_for("auth.setup"))
-    nxt = request.args.get("next") or request.form.get("next") or url_for("main.index")
-    if not nxt.startswith("/"):        # prevent open redirect
+    nxt = _safe_next(request.args.get("next") or request.form.get("next"))
+    if nxt is None:
         nxt = url_for("main.index")
     if request.method == "POST":
         if not check_csrf():

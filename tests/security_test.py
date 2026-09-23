@@ -268,6 +268,10 @@ def main():
     get_csrf(o, "/login")
     st, _, hdrs = o.post("/login", data={"username": "sectest1", "password": "SecTest-Pw-2024!",
                                          "next": "https://evil.example.com"})
+    for _bad in ("//evil.example", "////evil.example", "/\\evil.example"):
+        st, _, h = user.post("/login", data={"username": "admin", "password": ADMIN_PW, "next": _bad})
+        loc = h.get("Location", "")
+        check(f"open redirect blocked ({_bad})", not loc.startswith("//") and "evil" not in loc, f"got {loc}")
     loc = hdrs.get("Location", "")
     check("open redirect blocked", "evil.example.com" not in loc, f"loc={loc}")
 

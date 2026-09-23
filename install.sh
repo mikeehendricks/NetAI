@@ -204,7 +204,9 @@ PORT=$GW_PORT
 GITHUB_REPO=$REPO
 GITHUB_BRANCH=$BRANCH
 TRUST_PROXY=$([ "$WITH_NGINX" = "1" ] && echo 1 || echo 0)
-HTTPS_ONLY=0
+# The public path is always TLS-terminated in front of the app (nginx/Cloudflare
+# or any HTTPS LB), so the session cookie gets the Secure flag and HSTS is sent.
+HTTPS_ONLY=$([ "$WITH_NGINX" = "1" ] && echo 1 || echo 0)
 ALLOW_SIGNUP=1
 EOF
   chmod 600 .env
@@ -338,7 +340,10 @@ server {
     location / {
         proxy_pass http://127.0.0.1:${GW_PORT};
         proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        # Behind Cloudflare, use CF's verified client IP so rate limiting,
+        # lockouts and the live map see the real visitor (a client-supplied
+        # X-Forwarded-For is ignored); direct access falls back to the peer.
+        proxy_set_header X-Forwarded-For \$http_cf_connecting_ip;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
