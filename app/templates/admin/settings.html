@@ -51,6 +51,25 @@ OPENAI_VISION_MODEL=llama3.2-vision
 OPENAI_MODEL=llama3.2</pre>
       <p class="muted small">Everything then runs on this server - no data leaves the network. Vision models
          need roughly 8-16&nbsp;GB RAM (GPU speeds it up a lot); on CPU-only expect around a minute per diagram.</p>
+      <p><strong>Free cloud tiers (no credit card) - also OpenAI-compatible:</strong></p>
+      <pre class="code"># Google Gemini free tier (vision-capable, ~5-15 req/min)
+# get a key at aistudio.google.com - no card needed
+AI_PROVIDER=custom
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+OPENAI_API_KEY=YOUR-GEMINI-KEY
+OPENAI_VISION_MODEL=gemini-2.5-flash
+OPENAI_MODEL=gemini-2.5-flash
+
+# Groq free tier (very fast, text models)
+# key at console.groq.com
+# AI_PROVIDER=custom
+# OPENAI_BASE_URL=https://api.groq.com/openai/v1
+# OPENAI_API_KEY=gsk_...
+# OPENAI_MODEL=llama-3.3-70b-versatile</pre>
+      <p class="alert-warn alert" style="padding:8px 12px;"><strong>Privacy warning:</strong> on free cloud tiers your
+         uploads (including topology diagrams - i.e. maps of your network) are processed by the provider and may be
+         used to improve their models. For real infrastructure data prefer the local Ollama option; free tiers are
+         fine for testing, demos and non-sensitive summaries.</p>
       <p class="muted small">Cloud keys stay in the .env file (root-only) and are never stored in the database or shown in the UI.</p>
     {% endif %}
   </div>
