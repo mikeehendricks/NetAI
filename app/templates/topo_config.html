@@ -3,9 +3,10 @@
 {% block content %}
 <h1>Configuration generator</h1>
 {% if not vision_ok %}
-<div class="alert alert-warn">Image parsing uses the AI vision provider, which is not configured yet.
-  Add <code>AI_PROVIDER</code> and the matching API key in <code>.env</code> (see Admin &rarr; Settings) to enable it.
-  You can already generate configurations from any analysed project below &mdash; that works fully offline.</div>
+<div class="alert alert-warn">Image parsing uses an AI vision provider, which is not configured yet.
+  You can use a cloud API or run it <strong>fully local with Ollama</strong> (no data leaves this server) &mdash;
+  exact lines are in Admin &rarr; Settings. Meanwhile you can already generate configurations from any
+  analysed project below &mdash; that works fully offline.</div>
 {% endif %}
 <div class="grid2">
   <div class="card">

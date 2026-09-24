@@ -40,7 +40,18 @@ OPENAI_MODEL=gpt-4o-mini
 # AI_PROVIDER=anthropic
 # ANTHROPIC_API_KEY=sk-ant-...
 # ANTHROPIC_MODEL=claude-sonnet-4-20250514</pre>
-      <p class="muted small">Keys stay in the .env file (root-only) and are never stored in the database or shown in the UI.</p>
+      <p><strong>Fully local (no cloud, no key needed) with Ollama:</strong></p>
+      <pre class="code"># on this server:  curl -fsSL https://ollama.com/install.sh | sh
+# ollama pull llama3.2-vision          # vision (config generator)
+# ollama pull llama3.2                 # text (summary enhancement) - optional
+AI_PROVIDER=custom
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_API_KEY=ollama
+OPENAI_VISION_MODEL=llama3.2-vision
+OPENAI_MODEL=llama3.2</pre>
+      <p class="muted small">Everything then runs on this server - no data leaves the network. Vision models
+         need roughly 8-16&nbsp;GB RAM (GPU speeds it up a lot); on CPU-only expect around a minute per diagram.</p>
+      <p class="muted small">Cloud keys stay in the .env file (root-only) and are never stored in the database or shown in the UI.</p>
     {% endif %}
   </div>
 </div>
