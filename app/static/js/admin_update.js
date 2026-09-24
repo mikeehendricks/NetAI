@@ -75,7 +75,28 @@
           stateEl.innerHTML = resultBadge;
           resultBadge = null;
         }
-        if (d.local) localEl.textContent = d.local;
+        if (d.local) {
+          localEl.textContent = d.local;
+          // running process vs on-disk build: the footer stamp comes from the
+          // RUNNING app; update-check reads the DISK. A mismatch means an
+          // update pulled code but the service never restarted.
+          var fEl = document.querySelector(".footer .mono");
+          var fm = (fEl ? fEl.textContent : "").match(/build ([0-9a-f]{7,40})/);
+          var runningSha = fm ? fm[1].slice(0, 7) : "";
+          var staleBox = document.getElementById("update-stale");
+          if (runningSha && d.local !== runningSha && !d.running) {
+            if (staleBox) {
+              staleBox.style.display = "";
+              staleBox.innerHTML = '<strong>A newer build (' + esc(d.local) +
+                ') is on disk but the site is still running ' + esc(runningSha) +
+                '.</strong> Restart the service to load it: <span class="mono">sudo systemctl restart netai</span>' +
+                ' &mdash; or click Install update to re-run the verified restart.';
+            }
+            setInstallDisabled(false);
+          } else if (staleBox) {
+            staleBox.style.display = "none";
+          }
+        }
         commitBody.innerHTML = "";
         if (!d.commits.length) commitBody.innerHTML = '<tr><td colspan="4" class="muted">No commits found.</td></tr>';
         d.commits.forEach(function (c) {
@@ -113,6 +134,9 @@
             resultBadge = '<span class="sevbadge sev-low">update successful</span>';
             showUpdateDone(mOk[1]);
             return;   // banner shown; page reloads once the new build answers
+          } else if (lg.indexOf("update started") !== -1 && lg.indexOf("RESULT:") === -1) {
+            resultBadge = '<span class="sevbadge sev-medium">update stalled</span> <span class="muted">the updater stopped without a verdict - see the log below, then retry</span>';
+            setInstallDisabled(false);
           }
           check();
         }

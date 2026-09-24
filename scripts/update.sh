@@ -72,13 +72,20 @@ fi
 
 OLD_SHA="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 log "current commit: $OLD_SHA"
-log "fetching latest code..."
-if ! as_owner git -C "$APP_DIR" fetch origin "$BRANCH" --quiet; then
-  log "ERROR: could not download the latest code from GitHub (see the git errors above)."
-  log "       if the errors mention permissions, run once as root: chown -R $(stat -c '%U' "$APP_DIR" 2>/dev/null || echo netai) $APP_DIR"
-  exit 1
+log "fetching latest code... (aborts after ${NETAI_FETCH_TIMEOUT:-150}s if GitHub is unreachable)"
+FETCH_T="${NETAI_FETCH_TIMEOUT:-150}"
+if ! as_owner timeout -k 5 "$FETCH_T" git -C "$APP_DIR" fetch origin "$BRANCH" --quiet; then
+  log "fetch failed or timed out - retrying once in 5s (proxy/network hiccup)..."
+  sleep 5
+  if ! as_owner timeout -k 5 "$FETCH_T" git -C "$APP_DIR" fetch origin "$BRANCH" --quiet; then
+    log "ERROR: could not download the latest code from GitHub (see the git errors above)."
+    log "       on a filtering-proxy network make sure github.com is reachable from this host,"
+    log "       or set a proxy in $APP_DIR/.env (https_proxy=...)."
+    log "       if the errors mention permissions, run once as root: chown -R $(stat -c '%U' "$APP_DIR" 2>/dev/null || echo netai) $APP_DIR"
+    exit 1
+  fi
 fi
-if ! as_owner git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet; then
+if ! as_owner timeout -k 5 60 git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet; then
   log "ERROR: downloaded the code but could not apply it to the working copy (see errors above)."
   exit 1
 fi
