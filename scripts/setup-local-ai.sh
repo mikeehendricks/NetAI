@@ -93,38 +93,58 @@ say "ollama API is up: $(curl -sf -m 3 "$BASE_URL/api/version")"
 # ---------------------------------------------------------------- 2. model helpers
 api() { curl -sf -m "$1" "$BASE_URL$2" ${3:+-d "$3"}; }
 
+wait_api() { # wait for the API after restarts / OOM storms (up to 30s)
+  local i
+  for i in $(seq 1 30); do
+    api 2 /api/version >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+
 pull() { # pull <model> — via the service API so files land in the SERVICE's storage
-  say "pulling $model..."
+  wait_api || return 1
+  say "pulling $1 (this can take a while)..."
   api 3600 /api/pull "{\"name\":\"$1\",\"stream\":false}" >/dev/null 2>&1 \
     || api 3600 /api/pull "{\"model\":\"$1\",\"stream\":false}" >/dev/null 2>&1 \
     || return 1
   return 0
 }
 
-have() { api 8 /api/tags | python3 -c "import json,sys;print(any(m['name'].split(':')[0]=='$1'.split(':')[0] for m in json.load(sys.stdin).get('models',[])))" 2>/dev/null; }
-
-test_model() { # test_model <name> <label> — a real load+generate round-trip
-  local out
-  out=$(api 300 /api/chat "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"stream\":false}" 2>/dev/null) || return 1
-  echo "$out" | grep -q '"message"' || { say "  $1 failed to load: $(echo "$out" | head -c 160)"; return 1; }
-  return 0
+have() { # have <model> — is a model with this family name already in the library?
+  wait_api || return 1
+  [ "$(api 8 /api/tags | python3 -c "import json,sys;print(any(m['name'].split(':')[0]=='$1'.split(':')[0] for m in json.load(sys.stdin).get('models',[])))" 2>/dev/null)" = "True" ]
 }
 
-pick_model() { # pick_model <label> <candidates...>  -> echoes working tag
+test_model() { # test_model <name> — a real load+generate round-trip
+  local out
+  wait_api || return 1
+  if ! out=$(api 300 /api/chat "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"stream\":false}" 2>/dev/null); then
+    return 1
+  fi
+  if echo "$out" | grep -q '"message"'; then
+    say "  $1 says: $(echo "$out" | python3 -c "import json,sys;print(json.load(sys.stdin)['message']['content'][:40])" 2>/dev/null)" >&2
+    return 0
+  fi
+  say "  $1 load error: $(echo "$out" | head -c 140)" >&2
+  return 1
+}
+
+pick_model() { # pick_model <label> <candidates...>  -> echoes working tag (progress goes to stderr)
   local label="$1"; shift
   for m in "$@"; do
-    # RAM guard: rough (model GB ~= tag number or known); warn only
     if have "$m"; then
-      say "$label: $m already present - testing..."
+      say "$label: $m already present - testing..." >&2
     else
-      say "$label: $m not present - pulling (this can take a while)..."
-      pull "$m" || { say "  pull of $m failed (network?) - trying next candidate"; continue; }
+      say "$label: $m not present - pulling..." >&2
+      pull "$m" >&2 || { say "  pull of $m failed (network?) - trying next candidate" >&2; continue; }
     fi
-    if test_model "$m" "$label"; then
-      say "$label: $m WORKS on this engine"
+    if test_model "$m"; then
+      say "$label: $m WORKS on this engine" >&2
       echo "$m"
       return 0
     fi
+    say "  $m could not load on this engine/RAM - trying next candidate" >&2
   done
   return 1
 }

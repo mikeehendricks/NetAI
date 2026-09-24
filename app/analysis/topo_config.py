@@ -56,7 +56,16 @@ def sniff_image(data: bytes):
 
 # --------------------------------------------------------------------- vision
 def vision_available(cfg) -> bool:
-    return ai_mod.ai_available(cfg)
+    if not ai_mod.ai_available(cfg):
+        return False
+    # Local/Ollama ('custom') installs run separate vision and text models, and a
+    # text-only local model cannot read images. setup-local-ai.sh omits
+    # OPENAI_VISION_MODEL when no vision model passed the live load-test, so the
+    # UI must treat a missing key as "manual mode", not silently try OPENAI_MODEL.
+    # Cloud providers keep the fallback (their default chat models accept images).
+    if (cfg.get("AI_PROVIDER") or "").lower() == "custom":
+        return bool(cfg.get("OPENAI_VISION_MODEL"))
+    return True
 
 
 def extract_topology_from_image(cfg, data: bytes, mime: str):
