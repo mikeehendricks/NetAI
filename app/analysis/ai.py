@@ -53,7 +53,7 @@ def enhance(cfg, findings, draft_markdown) -> str:
                 json={"model": cfg.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
                       "max_tokens": 2000, "system": SYSTEM_PROMPT,
                       "messages": [{"role": "user", "content": user}]},
-                timeout=45,
+                timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
             )
             r.raise_for_status()
             return r.json()["content"][0]["text"]
@@ -67,7 +67,7 @@ def enhance(cfg, findings, draft_markdown) -> str:
                       "messages": [{"role": "system", "content": SYSTEM_PROMPT},
                                    {"role": "user", "content": user}],
                       "temperature": 0.3, "max_tokens": 2000},
-                timeout=45,
+                timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]

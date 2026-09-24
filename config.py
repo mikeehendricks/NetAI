@@ -28,7 +28,7 @@ def _bool(name, default=False):
 
 # Human-readable application version. Bump on every release; shown in the site
 # footer, on the admin update page, and stamped into error reports.
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.5"
 
 class Config:
     SECRET_KEY = _env("SECRET_KEY")
@@ -93,5 +93,10 @@ class Config:
     RATE_LIMIT_GET = (int(_env("RL_GET_N", "240")), int(_env("RL_GET_WIN", "60")))    # per IP/min
     RATE_LIMIT_POST = (int(_env("RL_POST_N", "40")), int(_env("RL_POST_WIN", "60")))
     RATE_LIMIT_LOGIN = (int(_env("RL_LOGIN_N", "10")), int(_env("RL_LOGIN_WIN", "60")))
+
+    # AI request timeouts (seconds). Defaults suit cloud APIs; local CPU
+    # inference needs far more - setup-local-ai.sh writes 900 into .env.
+    AI_TEXT_TIMEOUT = int(_env("AI_TEXT_TIMEOUT", "45"))
+    AI_VISION_TIMEOUT = int(_env("AI_VISION_TIMEOUT", "90"))
 
     PORT = int(_env("PORT", "8000"))

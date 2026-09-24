@@ -90,7 +90,7 @@ def extract_topology_from_image(cfg, data: bytes, mime: str):
                           {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
                           {"type": "text", "text": VISION_PROMPT},
                       ]}]},
-                timeout=90)
+                timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90))
             r.raise_for_status()
             text = r.json()["content"][0]["text"]
         else:  # openai or custom (must be a vision-capable model, e.g. gpt-4o)
@@ -106,7 +106,7 @@ def extract_topology_from_image(cfg, data: bytes, mime: str):
                            "image_url": {"url": f"data:{mime};base64,{b64}"}},
                       ]}, ],
                       "temperature": 0.1, "max_tokens": 3000},
-                timeout=90)
+                timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90))
             r.raise_for_status()
             text = r.json()["choices"][0]["message"]["content"]
     except Exception as e:  # network/API errors -> friendly message
