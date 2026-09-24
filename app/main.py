@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import time
 import uuid
 from pathlib import Path
 
@@ -188,6 +189,136 @@ def project(pid):
                            all_findings=findings, devices=devices,
                            sev_filter=sev_filter, dev_filter=dev_filter,
                            sev_order=["critical", "high", "medium", "low", "info"])
+
+
+# ---------------------------------------------------------------- config generator
+def _topo_store():
+    p = Path(current_app.config["UPLOAD_FOLDER"]).parent / "topo_configs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _prune_topo_results():
+    cutoff = time.time() - 24 * 3600
+    try:
+        for f in _topo_store().glob("*.json"):
+            if f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@bp.route("/tools/topo-config", methods=["GET", "POST"])
+@login_required
+def topo_config():
+    from .analysis import topo_config as gen_mod
+
+    cfg = current_app.config
+    if request.method == "GET":
+        _prune_topo_results()
+        projects = [{"id": p.id, "name": p.name} for p in Project.query.order_by(Project.created_at.desc()).limit(30)]
+        return render_template("topo_config.html", vision_ok=gen_mod.vision_available(cfg),
+                               projects=projects, preselect=request.args.get("project", type=int))
+
+    # ---------------- POST: generate ----------------
+    if not check_csrf():
+        abort(400, "Invalid CSRF token")
+    source = request.form.get("source") or "image"
+    topo, note = None, ""
+    if source == "project":
+        proj = _get_project_or_403(request.form.get("project_id", type=int) or 0)
+        topo = topo_mod.build_topology(proj.devices) if proj.devices else {"nodes": [], "links": []}
+        note = f"Generated from project '{proj.name}'."
+    else:
+        f = request.files.get("topo_image")
+        data = f.read(8 * 1024 * 1024 + 1) if f and f.filename else b""
+        if not data:
+            flash("Choose a topology image (PNG or JPEG) first.", "warn")
+            return redirect(url_for("main.topo_config"))
+        if len(data) > 8 * 1024 * 1024:
+            flash("That image is larger than 8 MB. Export it at a lower resolution.", "warn")
+            return redirect(url_for("main.topo_config"))
+        sniffed = gen_mod.sniff_image(data)
+        if not sniffed:
+            flash("That file is not a PNG or JPEG image.", "danger")
+            return redirect(url_for("main.topo_config"))
+        try:
+            topo = gen_mod.extract_topology_from_image(cfg, data, sniffed[0])
+        except ValueError as e:
+            flash(str(e), "danger")
+            return redirect(url_for("main.topo_config"))
+        note = f"Recognized {len(topo['devices'])} device(s) and {len(topo['links'])} link(s) from the image - review before use."
+    try:
+        files = gen_mod.generate_from_topology(topo)
+    except Exception:
+        current_app.logger.exception("topo-config generation failed")
+        flash("Could not generate configurations from that topology.", "danger")
+        return redirect(url_for("main.topo_config"))
+    if not files:
+        flash("No devices were found in that topology to generate configs for.", "warn")
+        return redirect(url_for("main.topo_config"))
+    rid = uuid.uuid4().hex
+    record = {"user_id": session.get("uid"), "created": time.time(), "note": note, "files": files}
+    (_topo_store() / f"{rid}.json").write_text(json.dumps(record), encoding="utf-8")
+    audit("tool.topo_config", f"{source}: {len(files)} config file(s)")
+    flash(f"{note} Generated {len(files)} configuration file(s).", "success")
+    return redirect(url_for("main.topo_config_result", rid=rid))
+
+
+def _topo_result_or_403(rid):
+    if not re.fullmatch(r"[a-f0-9]{32}", rid or ""):
+        abort(404)
+    p = _topo_store() / f"{rid}.json"
+    if not p.exists():
+        abort(404)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        abort(404)
+    if data.get("user_id") != session.get("uid") and session.get("role") != "admin":
+        abort(403)
+    return data
+
+
+@bp.route("/tools/topo-config/results/<rid>")
+@login_required
+def topo_config_result(rid):
+    data = _topo_result_or_403(rid)
+    return render_template("topo_config_result.html", rid=rid, note=data.get("note", ""), files=data["files"])
+
+
+@bp.route("/tools/topo-config/results/<rid>/files/<int:idx>")
+@login_required
+def topo_config_file(rid, idx):
+    data = _topo_result_or_403(rid)
+    if idx < 0 or idx >= len(data["files"]):
+        abort(404)
+    f = data["files"][idx]
+    import io as _io
+
+    return send_file(_io.BytesIO(f["config"].encode("utf-8")), as_attachment=True,
+                     download_name=secure_filename(f["filename"]) or f"device-{idx}.cfg",
+                     mimetype="text/plain")
+
+
+@bp.route("/tools/topo-config/results/<rid>/bundle.zip")
+@login_required
+def topo_config_zip(rid):
+    data = _topo_result_or_403(rid)
+    import io as _io
+    import zipfile as _zip
+
+    buf = _io.BytesIO()
+    with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
+        for i, f in enumerate(data["files"]):
+            z.writestr(secure_filename(f["filename"]) or f"device-{i}.cfg", f["config"])
+        z.writestr("README.txt",
+                   "Generated by NetAI from the reviewed topology.\n"
+                   "Review every file before applying: addresses, routing and\n"
+                   "credentials must match your own standards.\n")
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=f"netai-configs-{rid[:8]}.zip",
+                     mimetype="application/zip")
 
 
 @bp.route("/project/<int:pid>/topology")

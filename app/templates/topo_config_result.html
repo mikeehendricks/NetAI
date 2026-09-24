@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Generated configurations - {{ site_name }}{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Generated configurations</h1>
+  <div>
+    <a class="btn btn-primary" href="{{ url_for('main.topo_config_zip', rid=rid) }}">Download all (ZIP)</a>
+    <a class="btn" href="{{ url_for('main.topo_config') }}">New generation</a>
+  </div>
+</div>
+{% if note %}<p class="muted">{{ note }}</p>{% endif %}
+<div class="alert alert-warn">Draft configurations for engineering review &mdash; verify addresses, routing and
+  credentials before applying anything to production devices.</div>
+{% for f in files %}
+<div class="card">
+  <div class="pagehead">
+    <h2>{{ f.hostname }} <span class="muted small">({{ f.vendor }})</span></h2>
+    <a class="btn btn-sm" href="{{ url_for('main.topo_config_file', rid=rid, idx=loop.index0) }}">Download {{ f.filename }}</a>
+  </div>
+  <pre class="mono small" style="white-space:pre-wrap;background:#0a1322;border:1px solid #1f2d47;border-radius:8px;padding:12px;">{{ f.config }}</pre>
+</div>
+{% endfor %}
+{% endblock %}

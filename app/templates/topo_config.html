@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Config generator - {{ site_name }}{% endblock %}
+{% block content %}
+<h1>Configuration generator</h1>
+{% if not vision_ok %}
+<div class="alert alert-warn">Image parsing uses the AI vision provider, which is not configured yet.
+  Add <code>AI_PROVIDER</code> and the matching API key in <code>.env</code> (see Admin &rarr; Settings) to enable it.
+  You can already generate configurations from any analysed project below &mdash; that works fully offline.</div>
+{% endif %}
+<div class="grid2">
+  <div class="card">
+    <h2>From a topology image</h2>
+    <p class="muted">Upload a photo, screenshot or export of your low-level topology diagram. Devices, links and
+       interface addresses are read from the image, then hardened configuration files are generated for each device
+       (Cisco IOS, Palo Alto PAN-OS, Fortinet FortiGate or Aruba, based on what the diagram shows).</p>
+    <form method="post" action="{{ url_for('main.topo_config') }}" enctype="multipart/form-data"
+          id="topoimg-form" data-busylabel="Generating&hellip;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="source" value="image">
+      <label for="topo_image">Topology image (PNG or JPEG, max 8 MB)</label>
+      <input id="topo_image" name="topo_image" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg">
+      <div id="topoimg-error" class="alert alert-danger" style="display:none;"></div>
+      <button class="btn btn-primary" type="submit">Generate from image</button>
+    </form>
+    <p class="muted small">Every generated file is a <strong>draft for review</strong> &mdash; addresses, routing and
+       credentials must be checked against your standards before applying anything to a live device.</p>
+  </div>
+  <div class="card">
+    <h2>From an analysed project</h2>
+    <p class="muted">Uses the exact topology NetAI computed from an uploaded configuration set (fully offline).</p>
+    <form method="post" action="{{ url_for('main.topo_config') }}" id="topoproj-form" data-busylabel="Generating&hellip;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="source" value="project">
+      <label for="project_id">Project</label>
+      <select id="project_id" name="project_id" required>
+        {% for p in projects %}
+        <option value="{{ p.id }}" {{ 'selected' if p.id == preselect }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit">Generate from project</button>
+    </form>
+    <p class="muted small">Tip: the same action is available as <em>Generate configs</em> on any project's topology page.</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/topo_config.js') }}"></script>{% endblock %}

@@ -19,6 +19,7 @@
     {% if session.get('uid') %}
       <a href="{{ url_for('main.index') }}" class="{{ 'active' if request.endpoint=='main.index' }}">Dashboard</a>
       <a href="{{ url_for('main.analyze_upload') }}" class="{{ 'active' if request.endpoint=='main.analyze_upload' }}">New Analysis</a>
+      <a href="{{ url_for('main.topo_config') }}" class="{{ 'active' if request.endpoint=='main.topo_config' }}">Config Generator</a>
       {% if session.get('role')=='admin' %}
       <span class="navsep"></span>
       <a href="{{ url_for('admin.overview') }}" class="{{ 'active' if request.endpoint=='admin.overview' }}">Admin</a>

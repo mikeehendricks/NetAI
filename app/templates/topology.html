@@ -6,6 +6,7 @@
   <div>
     <button class="btn btn-sm btn-primary" id="topo-tree" type="button">Tree view</button>
     <button class="btn btn-sm" id="topo-force" type="button">Force view</button>
+    <a class="btn btn-sm" href="{{ url_for('main.topo_config', project=p.id) if p else url_for('main.topo_config') }}">Generate configs</a>
     <button class="btn btn-sm" id="topo-fit" type="button">Fit view</button>
     <button class="btn btn-sm" id="topo-export" type="button">Export SVG</button>
     <a class="btn btn-sm" href="{{ url_for('main.project', pid=p.id) }}">Back to findings</a>
