@@ -29,8 +29,14 @@ def ai_available(cfg) -> bool:
     return False
 
 
-def enhance(cfg, findings, draft_markdown) -> str:
-    """Return AI-polished executive summary markdown, or '' when unavailable/failed."""
+def enhance(cfg, findings, draft_markdown, progress=None) -> str:
+    """Return AI-polished executive summary markdown, or '' when unavailable/failed.
+
+    progress: optional callback(stage, words) for background-job UIs. With a
+    callback on the openai/custom providers the request switches to streaming
+    so the UI can report real generation progress (word count). stage is
+    'load' until the first token arrives, then 'gen'.
+    """
     if not ai_available(cfg):
         return ""
     # keep payload small: top findings only
@@ -44,8 +50,11 @@ def enhance(cfg, findings, draft_markdown) -> str:
         "Return ONLY the improved executive summary markdown."
     )
     provider = (cfg.get("AI_PROVIDER") or "").lower()
+    stream = progress is not None and provider in ("openai", "custom")
     try:
         if provider == "anthropic":
+            if progress is not None:
+                progress("gen", 0)
             r = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": cfg["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
@@ -59,18 +68,63 @@ def enhance(cfg, findings, draft_markdown) -> str:
             return r.json()["content"][0]["text"]
         else:  # openai or custom
             base = (cfg.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+            payload = {"model": cfg.get("OPENAI_MODEL", "gpt-4o-mini"),
+                       "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                                    {"role": "user", "content": user}],
+                       "temperature": 0.3, "max_tokens": 2000}
+            if not stream:
+                r = requests.post(
+                    base + "/chat/completions",
+                    headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
+                             "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
+                )
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"]
+            # streaming: report real progress while tokens arrive
+            payload["stream"] = True
             r = requests.post(
                 base + "/chat/completions",
                 headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
-                         "Content-Type": "application/json"},
-                json={"model": cfg.get("OPENAI_MODEL", "gpt-4o-mini"),
-                      "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                                   {"role": "user", "content": user}],
-                      "temperature": 0.3, "max_tokens": 2000},
+                         "Content-Type": "application/json", "Accept": "text/event-stream"},
+                json=payload,
                 timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
+                stream=True,
             )
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
+            text, words, last_words = [], 0, -1
+            for line in r.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0]["delta"].get("content") or ""
+                except (ValueError, KeyError, IndexError, TypeError):
+                    continue
+                if delta:
+                    if last_words < 0:
+                        progress("gen", 0)   # first token: model is loaded and generating
+                    text.append(delta)
+                    words = sum(len(t.split()) for t in text)
+                    if words - last_words >= 15:
+                        last_words = words
+                        progress("gen", words)
+            if text:
+                return "".join(text)
+            # server ignored stream:true and sent a normal body (or empty) - fall back
+            fallback = {k: v for k, v in payload.items() if k != "stream"}
+            r2 = requests.post(
+                base + "/chat/completions",
+                headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
+                         "Content-Type": "application/json"},
+                json=fallback,
+                timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
+            )
+            r2.raise_for_status()
+            return r2.json()["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning("AI enhancement failed: %s", e)
         return ""

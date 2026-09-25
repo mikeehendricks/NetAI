@@ -5,7 +5,9 @@
   <h1>Executive summary - {{ p.name }}</h1>
   <div>
     {% if ai_ready %}
-    <form method="post" action="{{ url_for('main.summary_enhance', pid=p.id) }}" class="inlineform">
+    <form method="post" action="{{ url_for('main.summary_enhance', pid=p.id) }}" class="inlineform"
+          id="enhance-form" data-start-url="{{ url_for('main.summary_enhance_start', pid=p.id) }}"
+          data-status-url="{{ url_for('main.summary_enhance_status', jid='') }}">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <button class="btn btn-sm{{ '' if p.ai_enhanced else ' btn-primary' }}" type="submit">
         {{ 'Re-run AI enhancement' if p.ai_enhanced else 'Enhance with AI' }}
@@ -20,6 +22,18 @@
     <a class="btn btn-sm" href="{{ url_for('main.summary_md', pid=p.id) }}">Download .md</a>
     <button class="btn btn-sm print-btn" type="button">Print / PDF</button>
   </div>
+</div>
+
+<div id="enhance-progress" style="display:none; margin:.6rem 0 1rem;">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:.75rem; margin-bottom:.3rem;">
+    <span id="enhance-stage" style="font-weight:600;">Starting&hellip;</span>
+    <span id="enhance-pct" style="font-weight:800; font-variant-numeric:tabular-nums;">0%</span>
+  </div>
+  <div style="height:10px; background:rgba(127,127,127,.25); border-radius:6px; overflow:hidden;">
+    <div id="enhance-bar" style="height:100%; width:2%; background:linear-gradient(90deg,#22d3ee,#6366f1); transition:width .7s ease;"></div>
+  </div>
+  <div id="enhance-meta" class="muted small" style="margin-top:.3rem;"></div>
+  <div id="enhance-error" class="alert alert-danger" style="display:none; margin-top:.5rem;"></div>
 </div>
 
 {% if p.ai_enhanced and s.get('ai_markdown') %}
@@ -111,3 +125,4 @@
 </div>
 {% endif %}
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/enhance_progress.js') }}"></script>{% endblock %}

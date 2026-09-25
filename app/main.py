@@ -411,6 +411,160 @@ def summary_enhance(pid):
     return redirect(url_for("main.summary_view", pid=pid))
 
 
+# ------------------------------------------------------- background enhancement
+# A local-AI enhancement runs 1-3+ minutes - longer than browsers/Cloudflare wait
+# comfortably. The UI therefore starts a background job and polls its status;
+# status lives in a small file (not RAM) so any gunicorn worker can serve polls.
+
+def _enh_jobs_dir():
+    p = Path(current_app.config["UPLOAD_FOLDER"]).parent / "enhance_jobs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _enh_write(jid, **kw):
+    p = _enh_jobs_dir() / f"{jid}.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(kw), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _enh_read(jid):
+    if not re.fullmatch(r"[a-f0-9]{32}", jid or ""):
+        return None
+    try:
+        return json.loads((_enh_jobs_dir() / f"{jid}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _enh_progress_cb(jid):
+    import threading
+
+    lock = threading.Lock()
+    last = {"t": 0.0}
+
+    def cb(stage, words):
+        with lock:
+            now = time.time()
+            if now - last["t"] < 0.4 and stage == "gen" and words:   # throttle disk writes
+                return
+            last["t"] = now
+            job = _enh_read(jid) or {}
+            job.update(stage=stage, words=words, updated=now)
+            _enh_write(jid, **job)
+    return cb
+
+
+def _enh_cleanup():
+    cutoff = time.time() - 3600
+    try:
+        for f in _enh_jobs_dir().glob("*.json"):
+            if f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _enh_worker(app, pid, uid, jid):
+    """Runs in a daemon thread with its own app context / db session."""
+    try:
+        with app.app_context():
+            from .analysis import ai as ai_mod
+            from .models import Project
+
+            proj = db.session.get(Project, pid)
+            if proj is None or proj.user_id != uid:
+                _enh_write(jid, user=uid, pid=pid, stage="error", words=0,
+                           error="project not found", started=time.time(), updated=time.time())
+                return
+            _enh_write(jid, user=uid, pid=pid, stage="load", words=0, error="",
+                       started=time.time(), updated=time.time())
+            cfg = dict(app.config)
+            md = to_markdown(_fresh_summary(proj))
+            polished = ai_mod.enhance(cfg, proj.findings, md, progress=_enh_progress_cb(jid))
+            job = _enh_read(jid) or {}
+            if polished:
+                s = proj.summary
+                s["ai_markdown"] = polished
+                proj.summary_json = json.dumps(s)
+                proj.ai_enhanced = True
+                db.session.commit()
+                job.update(stage="done", words=0, error="", updated=time.time())
+                audit("summary.enhance_bg", f"project {pid}: {len(polished)} chars")
+            else:
+                job.update(stage="error", words=0,
+                           error="the AI model returned nothing (check connectivity / server logs)",
+                           updated=time.time())
+            _enh_write(jid, **job)
+    except Exception as e:
+        try:
+            with app.app_context():
+                current_app.logger.exception("background enhance failed")
+            _enh_write(jid, **{**(_enh_read(jid) or {}), "stage": "error", "words": 0,
+                               "error": f"server error: {type(e).__name__}", "updated": time.time()})
+        except Exception:
+            pass
+
+
+@bp.route("/project/<int:pid>/summary/enhance-start", methods=["POST"])
+@login_required
+def summary_enhance_start(pid):
+    _get_project_or_403(pid)
+    if not check_csrf():
+        abort(400, "Invalid CSRF token")
+    from .analysis import ai as ai_mod
+
+    if not ai_mod.ai_available(current_app.config):
+        return {"ok": False, "error": "AI enhancement is not configured"}, 400
+    _enh_cleanup()
+    uid = session.get("uid")
+    # one live job per user+project: double-clicks / reloads resume the same bar
+    for f in _enh_jobs_dir().glob("*.json"):
+        try:
+            j = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (j.get("user") == uid and j.get("pid") == pid
+                and j.get("stage") in ("queued", "load", "gen") and time.time() - j.get("updated", 0) < 1800):
+            return {"ok": True, "jid": f.stem, "existing": True}
+    jid = uuid.uuid4().hex
+    _enh_write(jid, user=uid, pid=pid, stage="queued", words=0, error="",
+               started=time.time(), updated=time.time())
+    import threading
+
+    app = current_app._get_current_object()
+    threading.Thread(target=_enh_worker, args=(app, pid, uid, jid), daemon=True).start()
+    audit("summary.enhance_start", f"project {pid}")
+    return {"ok": True, "jid": jid, "existing": False}
+
+
+@bp.route("/project/summary/enhance-status/<jid>")
+@login_required
+def summary_enhance_status(jid):
+    job = _enh_read(jid)
+    if not job or job.get("user") != session.get("uid"):
+        abort(404)
+    elapsed = max(0, int(time.time() - job.get("started", time.time())))
+    stage, words = job.get("stage", "queued"), int(job.get("words") or 0)
+    # progress math (single source of truth for the bar)
+    if stage == "queued":
+        pct = 2
+    elif stage == "load":     # cold model load: creep to 20% over ~30 s
+        pct = min(20, 2 + elapsed * 0.6)
+    elif stage == "gen":      # streaming: real word count vs ~600-word target
+        if words > 0:
+            pct = 20 + min(70, words / 600 * 70)
+        else:                 # non-streaming provider: reference pace 90 s
+            pct = 20 + min(65, elapsed / 90 * 65)
+    elif stage == "done":
+        pct = 100
+    else:                     # error: freeze the bar, show the message
+        pct = min(95, 20 + min(65, elapsed / 90 * 65))
+    return {"stage": stage, "words": words, "elapsed": elapsed,
+            "progress": round(pct, 1), "error": job.get("error", "")}
+
+
 @bp.route("/project/<int:pid>/delete", methods=["POST"])
 @login_required
 def project_delete(pid):
