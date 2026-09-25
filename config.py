@@ -28,7 +28,7 @@ def _bool(name, default=False):
 
 # Human-readable application version. Bump on every release; shown in the site
 # footer, on the admin update page, and stamped into error reports.
-APP_VERSION = "1.5.7"
+APP_VERSION = "1.5.9"
 
 class Config:
     SECRET_KEY = _env("SECRET_KEY")
@@ -84,6 +84,7 @@ class Config:
     OPENAI_API_KEY = _env("OPENAI_API_KEY", "")
     OPENAI_BASE_URL = _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
     OPENAI_MODEL = _env("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_VISION_MODEL = _env("OPENAI_VISION_MODEL", "")   # local/Ollama vision tag; empty = no vision
     ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL = _env("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 

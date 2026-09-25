@@ -8,6 +8,17 @@
   exact lines are in Admin &rarr; Settings. Meanwhile you can already generate configurations from any
   analysed project below &mdash; that works fully offline.</div>
 {% endif %}
+<div id="topo-progress" style="display:none; margin:.6rem 0 1rem;">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:.75rem; margin-bottom:.3rem;">
+    <span id="topo-stage" style="font-weight:600;">Starting&hellip;</span>
+    <span id="topo-pct" style="font-weight:800; font-variant-numeric:tabular-nums;">0%</span>
+  </div>
+  <div style="height:10px; background:rgba(127,127,127,.25); border-radius:6px; overflow:hidden;">
+    <div id="topo-bar" style="height:100%; width:2%; background:linear-gradient(90deg,#22d3ee,#6366f1); transition:width .7s ease;"></div>
+  </div>
+  <div id="topo-meta" class="muted small" style="margin-top:.3rem;"></div>
+  <div id="topo-error" class="alert alert-danger" style="display:none; margin-top:.5rem;"></div>
+</div>
 <div class="grid2">
   <div class="card">
     <h2>From a topology image</h2>
@@ -15,13 +26,16 @@
        interface addresses are read from the image, then hardened configuration files are generated for each device
        (Cisco IOS, Palo Alto PAN-OS, Fortinet FortiGate or Aruba, based on what the diagram shows).</p>
     <form method="post" action="{{ url_for('main.topo_config') }}" enctype="multipart/form-data"
-          id="topoimg-form" data-busylabel="Generating&hellip;">
+          id="topoimg-form" data-busylabel="Generating&hellip;"
+          data-status-url="{{ url_for('main.topo_config_status', jid='') }}"
+          data-result-url="{{ url_for('main.topo_config_result', rid='') }}">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="source" value="image">
       <label for="topo_image">Topology image (PNG or JPEG, max 8 MB)</label>
       <input id="topo_image" name="topo_image" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg">
       <div id="topoimg-error" class="alert alert-danger" style="display:none;"></div>
-      <button class="btn btn-primary" type="submit">Generate from image</button>
+      <button class="btn btn-primary" type="submit" {% if not vision_ok %}disabled
+              title="Configure a vision model first - see the notice above"{% endif %}>Generate from image</button>
     </form>
     <p class="muted small">Every generated file is a <strong>draft for review</strong> &mdash; addresses, routing and
        credentials must be checked against your standards before applying anything to a live device.</p>

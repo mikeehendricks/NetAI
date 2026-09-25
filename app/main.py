@@ -244,6 +244,7 @@ def topo_config():
     if not check_csrf():
         abort(400, "Invalid CSRF token")
     source = request.form.get("source") or "image"
+    bg = request.form.get("bg") == "1"   # JS clients: run as a background job with progress
     topo, note = None, ""
     if source == "project":
         proj = _get_project_or_403(request.form.get("project_id", type=int) or 0)
@@ -252,16 +253,25 @@ def topo_config():
     else:
         f = request.files.get("topo_image")
         data = f.read(8 * 1024 * 1024 + 1) if f and f.filename else b""
+
+        def _img_err(msg):
+            if bg:
+                return {"ok": False, "error": msg}, 400
+            flash(msg, "warn")
+            return redirect(url_for("main.topo_config"))
+
         if not data:
-            flash("Choose a topology image (PNG or JPEG) first.", "warn")
-            return redirect(url_for("main.topo_config"))
+            return _img_err("Choose a topology image (PNG or JPEG) first.")
         if len(data) > 8 * 1024 * 1024:
-            flash("That image is larger than 8 MB. Export it at a lower resolution.", "warn")
-            return redirect(url_for("main.topo_config"))
+            return _img_err("That image is larger than 8 MB. Export it at a lower resolution.")
         sniffed = gen_mod.sniff_image(data)
         if not sniffed:
-            flash("That file is not a PNG or JPEG image.", "danger")
-            return redirect(url_for("main.topo_config"))
+            return _img_err("That file is not a PNG or JPEG image.")
+        if not gen_mod.vision_available(cfg):
+            return _img_err("No vision model is configured. Re-run scripts/setup-local-ai.sh on the server "
+                            "to provision and test one, or use 'From an analysed project' meanwhile.")
+        if bg:
+            return _topo_start_job(data, sniffed[0])
         try:
             topo = gen_mod.extract_topology_from_image(cfg, data, sniffed[0])
         except ValueError as e:
@@ -283,6 +293,144 @@ def topo_config():
     audit("tool.topo_config", f"{source}: {len(files)} config file(s)")
     flash(f"{note} Generated {len(files)} configuration file(s).", "success")
     return redirect(url_for("main.topo_config_result", rid=rid))
+
+
+# --------------------------------------------------- background image generation
+# A local vision model on CPU needs 2-5 minutes per diagram - longer than browsers
+# and Cloudflare wait. JS clients run the job in a worker thread and poll; the
+# job file (status) and the image bytes live under instance/topo_jobs/.
+
+def _topo_jobs_dir():
+    p = Path(current_app.config["UPLOAD_FOLDER"]).parent / "topo_jobs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _tj_write(jid, **kw):
+    p = _topo_jobs_dir() / f"{jid}.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(kw), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _tj_read(jid):
+    if not re.fullmatch(r"[a-f0-9]{32}", jid or ""):
+        return None
+    try:
+        return json.loads((_topo_jobs_dir() / f"{jid}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _topo_cleanup():
+    cutoff = time.time() - 2 * 3600
+    try:
+        for f in _topo_jobs_dir().glob("*"):
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _topo_start_job(data, mime):
+    _topo_cleanup()
+    uid = session.get("uid")
+    jid = uuid.uuid4().hex
+    (_topo_jobs_dir() / f"{jid}.bin").write_bytes(data)
+    now = time.time()
+    _tj_write(jid, user=uid, stage="queued", chars=0, error="", rid="", mime=mime,
+              started=now, updated=now, stage_since=now)
+    import threading
+
+    app = current_app._get_current_object()
+    threading.Thread(target=_topo_worker, args=(app, uid, jid), daemon=True).start()
+    audit("tool.topo_config_bg", f"image job {jid[:8]} ({len(data)} bytes)")
+    return {"ok": True, "jid": jid}
+
+
+def _topo_worker(app, uid, jid):
+    try:
+        with app.app_context():
+            from .analysis import topo_config as gen_mod
+
+            data = (_topo_jobs_dir() / f"{jid}.bin").read_bytes()
+            mime = (_tj_read(jid) or {}).get("mime", "image/png")
+            _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "load",
+                              "stage_since": time.time(), "updated": time.time()})
+            cfg = dict(app.config)
+
+            def cb(stage, chars):
+                job = _tj_read(jid) or {}
+                now = time.time()
+                upd = {"stage": stage, "chars": chars, "updated": now}
+                if job.get("stage") != stage:
+                    upd["stage_since"] = now
+                _tj_write(jid, **{**job, **upd})
+
+            topo = gen_mod.extract_topology_from_image(cfg, data, mime, progress=cb)
+            _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "configs", "chars": 0,
+                              "stage_since": time.time(), "updated": time.time()})
+            files = gen_mod.generate_from_topology(topo)
+            if not files:
+                _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "error",
+                                  "error": "No devices were recognized in that image to generate configs for.",
+                                  "updated": time.time()})
+                return
+            note = (f"Recognized {len(topo['devices'])} device(s) and {len(topo['links'])} link(s) "
+                    "from the image - review before use.")
+            rid = uuid.uuid4().hex
+            record = {"user_id": uid, "created": time.time(), "note": note, "files": files}
+            (_topo_store() / f"{rid}.json").write_text(json.dumps(record), encoding="utf-8")
+            audit("tool.topo_config", f"image(bg): {len(files)} config file(s)")
+            _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "done", "rid": rid, "updated": time.time()})
+    except ValueError as e:
+        try:
+            _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "error", "error": str(e),
+                              "updated": time.time()})
+        except Exception:
+            pass
+    except Exception:
+        try:
+            with app.app_context():
+                current_app.logger.exception("background topo generation failed")
+            _tj_write(jid, **{**(_tj_read(jid) or {}), "stage": "error",
+                              "error": "server error while generating - see service logs",
+                              "updated": time.time()})
+        except Exception:
+            pass
+    finally:
+        try:
+            (_topo_jobs_dir() / f"{jid}.bin").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@bp.route("/tools/topo-config/status/<jid>")
+@login_required
+def topo_config_status(jid):
+    job = _tj_read(jid)
+    if not job or job.get("user") != session.get("uid"):
+        abort(404)
+    now = time.time()
+    started = job.get("started", now)
+    elapsed = max(0, int(now - started))
+    stage = job.get("stage", "queued")
+    chars = int(job.get("chars") or 0)
+    stage_t = max(0.0, now - job.get("stage_since", started))
+    if stage == "queued":
+        pct = 2.0
+    elif stage == "load":        # model cold load: creep to 25% over ~30 s
+        pct = min(25.0, 2 + stage_t * 0.8)
+    elif stage == "vision":      # real chars vs ~1500-char topology JSON
+        pct = (25.0 + min(65.0, chars / 1500 * 65)) if chars else min(40.0, 25 + stage_t / 150 * 15)
+    elif stage == "configs":
+        pct = 95.0
+    elif stage == "done":
+        pct = 100.0
+    else:                        # error: freeze the bar, show the message
+        pct = 40.0
+    return {"stage": stage, "chars": chars, "elapsed": elapsed,
+            "progress": round(pct, 1), "rid": job.get("rid", ""), "error": job.get("error", "")}
 
 
 def _topo_result_or_403(rid):

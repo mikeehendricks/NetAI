@@ -68,18 +68,26 @@ def vision_available(cfg) -> bool:
     return True
 
 
-def extract_topology_from_image(cfg, data: bytes, mime: str):
+def extract_topology_from_image(cfg, data: bytes, mime: str, progress=None):
     """Ask the configured AI vision provider to turn the diagram into topology.
     Returns {"devices": [...], "links": [...]} normalized like build_topology().
-    Raises ValueError with a friendly message on any failure."""
+    Raises ValueError with a friendly message on any failure.
+    progress: optional callback(stage, chars) - streams the vision response and
+    reports ('vision', <chars so far>) so the UI can show real progress."""
     if not ai_mod.ai_available(cfg):
         raise ValueError("AI vision is not configured. Set AI_PROVIDER and the matching API key in .env.")
+    if (cfg.get("AI_PROVIDER") or "").lower() == "custom" and not cfg.get("OPENAI_VISION_MODEL"):
+        raise ValueError("No vision model is configured (OPENAI_VISION_MODEL missing in .env). "
+                         "Re-run scripts/setup-local-ai.sh to provision and test one.")
     if len(data) > 8 * 1024 * 1024:
         raise ValueError("Image is larger than 8 MB.")
     b64 = base64.b64encode(data).decode("ascii")
+    vmodel = cfg.get("OPENAI_VISION_MODEL") or cfg.get("OPENAI_MODEL") or "gpt-4o"
     provider = (cfg.get("AI_PROVIDER") or "").lower()
     try:
         if provider == "anthropic":
+            if progress is not None:
+                progress("vision", 0)
             r = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": cfg["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
@@ -95,23 +103,64 @@ def extract_topology_from_image(cfg, data: bytes, mime: str):
             text = r.json()["content"][0]["text"]
         else:  # openai or custom (must be a vision-capable model, e.g. gpt-4o)
             base = (cfg.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-            r = requests.post(
-                base + "/chat/completions",
-                headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
-                         "Content-Type": "application/json"},
-                json={"model": cfg.get("OPENAI_VISION_MODEL", cfg.get("OPENAI_MODEL", "gpt-4o")),
-                      "messages": [{"role": "user", "content": [
-                          {"type": "text", "text": VISION_PROMPT},
-                          {"type": "image_url",
-                           "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                      ]}, ],
-                      "temperature": 0.1, "max_tokens": 3000},
-                timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90))
-            r.raise_for_status()
-            text = r.json()["choices"][0]["message"]["content"]
-    except Exception as e:  # network/API errors -> friendly message
-        log.warning("vision extraction failed: %s", e)
-        raise ValueError("The AI vision provider could not process the image. Check the API key/model in .env.")
+            payload = {"model": vmodel,
+                       "messages": [{"role": "user", "content": [
+                           {"type": "text", "text": VISION_PROMPT},
+                           {"type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                       ]}, ],
+                       "temperature": 0.1, "max_tokens": 3000}
+            if progress is None:
+                r = requests.post(
+                    base + "/chat/completions",
+                    headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
+                             "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90))
+                r.raise_for_status()
+                text = r.json()["choices"][0]["message"]["content"]
+            else:
+                # streaming: report real progress while the topology JSON arrives
+                payload["stream"] = True
+                r = requests.post(
+                    base + "/chat/completions",
+                    headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
+                             "Content-Type": "application/json", "Accept": "text/event-stream"},
+                    json=payload, timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90), stream=True)
+                r.raise_for_status()
+                parts = []
+                for line in r.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith("data:"):
+                        continue
+                    d = line[5:].strip()
+                    if d == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(d)["choices"][0]["delta"].get("content") or ""
+                    except (ValueError, KeyError, IndexError, TypeError):
+                        continue
+                    if delta:
+                        parts.append(delta)
+                        progress("vision", sum(len(p) for p in parts))
+                if parts:
+                    text = "".join(parts)
+                else:
+                    # server ignored stream:true - fall back to a normal call
+                    r2 = requests.post(
+                        base + "/chat/completions",
+                        headers={"Authorization": "Bearer " + cfg["OPENAI_API_KEY"],
+                                 "Content-Type": "application/json"},
+                        json={k: v for k, v in payload.items() if k != "stream"},
+                        timeout=int(cfg.get("AI_VISION_TIMEOUT") or 90))
+                    r2.raise_for_status()
+                    text = r2.json()["choices"][0]["message"]["content"]
+    except ValueError:
+        raise
+    except Exception as e:  # network/API errors -> friendly, specific message
+        log.warning("vision extraction failed (%s): %s", vmodel, e)
+        raise ValueError(f"The vision model '{vmodel}' failed to process the image "
+                         f"({type(e).__name__}). Verify it exists in 'ollama list' and that "
+                         "OPENAI_VISION_MODEL in .env matches, then retry.")
 
     return _parse_vision_json(text)
 

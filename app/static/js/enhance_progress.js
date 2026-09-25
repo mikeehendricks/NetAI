@@ -20,10 +20,21 @@
   var btn = form.querySelector("button");
   var origLabel = btn ? btn.textContent : "";
   var pollTimer = null, tickTimer = null, t0 = 0, misses = 0;
+  var lastPct = 0, lastElapsed = 0;
 
   function fmt(sec) {
+    sec = Math.max(0, Math.round(sec));
     var m = Math.floor(sec / 60), s = sec % 60;
     return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function metaText() {
+    var txt = "elapsed " + fmt(lastElapsed || Math.floor((Date.now() - t0) / 1000)) +
+      " \u00b7 local models: 1\u20133 min is normal, the page updates itself when finished";
+    if (lastPct >= 6 && lastPct < 100) {
+      txt += " \u00b7 \u2248 " + fmt(lastElapsed * (100 - lastPct) / lastPct) + " remaining";
+    }
+    return txt;
   }
 
   function stopTimers() {
@@ -52,9 +63,11 @@
       .then(function (r) { if (!r.ok) throw new Error("status " + r.status); return r.json(); })
       .then(function (d) {
         misses = 0;
+        lastPct = d.progress; lastElapsed = d.elapsed;
         bar.style.width = Math.max(2, Math.min(100, d.progress)) + "%";
         pctEl.textContent = Math.round(d.progress) + "%";
         stageEl.textContent = stageText(d.stage, d.words);
+        metaEl.textContent = metaText();
         if (d.stage === "done") {
           stopTimers();
           setTimeout(function () { window.location.reload(); }, 600);
@@ -84,8 +97,7 @@
         form.style.display = "none";
         t0 = Date.now();
         tickTimer = setInterval(function () {
-          metaEl.textContent = "elapsed " + fmt(Math.floor((Date.now() - t0) / 1000)) +
-            " \u00b7 local models: 1\u20133 min is normal, the page updates itself when finished";
+          metaEl.textContent = metaText();
         }, 1000);
         poll(res.j.jid);
         pollTimer = setInterval(function () { poll(res.j.jid); }, 2000);
