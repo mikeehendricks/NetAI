@@ -126,12 +126,20 @@ if [ "$REQ_CHANGED" -eq 1 ]; then
     || log "note: pip self-upgrade skipped (no access to pypi.org) - continuing"
   if as_owner "$PY" -m pip install --quiet --disable-pip-version-check --retries 2 --timeout 15 -r requirements.txt; then
     log "dependencies OK"
+  elif [ -d "$APP_DIR/wheels" ] && ls "$APP_DIR"/wheels/*.whl >/dev/null 2>&1 \
+       && as_owner "$PY" -m pip install --quiet --disable-pip-version-check --no-index \
+            --find-links "$APP_DIR/wheels" -r requirements.txt; then
+    log "dependencies OK (installed offline from $APP_DIR/wheels)"
   else
     log "ERROR: dependency install failed - no route to pypi.org? (filtering proxy network)"
-    log "       fix: add a line 'https_proxy=http://YOUR-PROXY:PORT' to $APP_DIR/.env"
-    log "       then install manually:"
+    log "       fix option A: add a line 'https_proxy=http://YOUR-PROXY:PORT' to $APP_DIR/.env, then:"
     log "         cd $APP_DIR && sudo .venv/bin/pip install -r requirements.txt"
-    log "       then restart the app: sudo systemctl restart netai"
+    log "       fix option B (offline server): on an internet-connected machine run"
+    log "         pip download -r requirements.txt -d wheels/"
+    log "       copy that wheels/ folder to $APP_DIR/wheels/ on this server, then:"
+    log "         cd $APP_DIR && sudo .venv/bin/pip install --no-index --find-links wheels/ -r requirements.txt"
+    log "       then re-run scripts/update.sh (it will finish offline) and:"
+    log "         sudo systemctl restart netai"
     log "NOT restarting the service: the new code may need the new packages, and a"
     log "restart now could take the site down. The running build stays in place."
     exit 1

@@ -28,7 +28,7 @@ def _bool(name, default=False):
 
 # Human-readable application version. Bump on every release; shown in the site
 # footer, on the admin update page, and stamped into error reports.
-APP_VERSION = "1.5.10"
+APP_VERSION = "1.5.11"
 
 class Config:
     SECRET_KEY = _env("SECRET_KEY")
