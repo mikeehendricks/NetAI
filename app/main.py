@@ -217,8 +217,28 @@ def topo_config():
     if request.method == "GET":
         _prune_topo_results()
         projects = [{"id": p.id, "name": p.name} for p in Project.query.order_by(Project.created_at.desc()).limit(30)]
+        # Recent generations for this user: a long local-AI run can outlive the
+        # Cloudflare/browser timeout, and the result id is otherwise only delivered
+        # by the POST redirect - this list makes those completed results recoverable.
+        recent = []
+        try:
+            for f in sorted(_topo_store().glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+                try:
+                    d = json.loads(f.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if d.get("user_id") != session.get("uid"):
+                    continue
+                recent.append({"rid": f.stem, "note": d.get("note", ""), "n": len(d.get("files", [])),
+                               "when": int(d.get("created") or f.stat().st_mtime),
+                               "label": time.strftime("%d %b %H:%M", time.localtime(int(d.get("created") or f.stat().st_mtime)))})
+                if len(recent) >= 5:
+                    break
+        except OSError:
+            pass
         return render_template("topo_config.html", vision_ok=gen_mod.vision_available(cfg),
-                               projects=projects, preselect=request.args.get("project", type=int))
+                               projects=projects, preselect=request.args.get("project", type=int),
+                               recent=recent)
 
     # ---------------- POST: generate ----------------
     if not check_csrf():

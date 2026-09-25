@@ -43,5 +43,19 @@
     <p class="muted small">Tip: the same action is available as <em>Generate configs</em> on any project's topology page.</p>
   </div>
 </div>
+{% if recent %}
+<div class="card" style="margin-top:1rem;">
+  <h2>Recent generations</h2>
+  <p class="muted small">If a long local-AI run hits a Cloudflare/browser timeout, the result is still saved &mdash; pick it up here (kept for 24&nbsp;h).</p>
+  <ul class="small" style="list-style:none;padding:0;margin:0;">
+    {% for r in recent %}
+    <li style="padding:.35rem 0;border-bottom:1px solid rgba(128,128,128,.25);">
+      <a href="{{ url_for('main.topo_config_result', rid=r.rid) }}">Generation of {{ r.label }}</a>
+      &mdash; {{ r.n }} file(s) &mdash; <span class="muted">{{ r.note }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/topo_config.js') }}"></script>{% endblock %}
