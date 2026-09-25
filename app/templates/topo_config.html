@@ -43,6 +43,7 @@
   <div class="card">
     <h2>From an analysed project</h2>
     <p class="muted">Uses the exact topology NetAI computed from an uploaded configuration set (fully offline).</p>
+    {% if projects %}
     <form method="post" action="{{ url_for('main.topo_config') }}" id="topoproj-form" data-busylabel="Generating&hellip;">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="source" value="project">
@@ -54,6 +55,11 @@
       </select>
       <button class="btn btn-primary" type="submit">Generate from project</button>
     </form>
+    {% else %}
+    <p class="muted small">No analysed projects yet. Upload configuration files on the <strong>New Analysis</strong>
+       page first &mdash; then come back to generate hardened configs from the computed topology.</p>
+    <button class="btn btn-primary" type="button" disabled>Generate from project</button>
+    {% endif %}
     <p class="muted small">Tip: the same action is available as <em>Generate configs</em> on any project's topology page.</p>
   </div>
 </div>

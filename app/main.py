@@ -216,7 +216,12 @@ def topo_config():
     cfg = current_app.config
     if request.method == "GET":
         _prune_topo_results()
-        projects = [{"id": p.id, "name": p.name} for p in Project.query.order_by(Project.created_at.desc()).limit(30)]
+        # dropdown lists only the user's own projects (admin: all) - listing
+        # every project leaked other users' project names
+        q = Project.query
+        if session.get("role") != "admin":
+            q = q.filter(Project.user_id == session.get("uid"))
+        projects = [{"id": p.id, "name": p.name} for p in q.order_by(Project.created_at.desc()).limit(30)]
         # Recent generations for this user: a long local-AI run can outlive the
         # Cloudflare/browser timeout, and the result id is otherwise only delivered
         # by the POST redirect - this list makes those completed results recoverable.
@@ -271,7 +276,8 @@ def topo_config():
             return _img_err("No vision model is configured. Re-run scripts/setup-local-ai.sh on the server "
                             "to provision and test one, or use 'From an analysed project' meanwhile.")
         if bg:
-            return _topo_start_job(data, sniffed[0])
+            payload, code = _topo_start_job(data, sniffed[0])
+            return payload, code
         try:
             topo = gen_mod.extract_topology_from_image(cfg, data, sniffed[0])
         except ValueError as e:
@@ -335,6 +341,22 @@ def _topo_cleanup():
 def _topo_start_job(data, mime):
     _topo_cleanup()
     uid = session.get("uid")
+    # resource guards: per-user live jobs and global pending-image bytes
+    live = 0
+    total_bytes = 0
+    for f in _topo_jobs_dir().glob("*.json"):
+        j = _tj_read(f.stem)
+        if not j:
+            continue
+        if j.get("user") == uid and j.get("stage") in ("queued", "load", "vision", "configs"):
+            live += 1
+        b = _topo_jobs_dir() / f"{f.stem}.bin"
+        if b.exists():
+            total_bytes += b.stat().st_size
+    if live >= 3:
+        return {"ok": False, "error": "You already have 3 generations running. Wait for one to finish."}, 429
+    if total_bytes + len(data) > 48 * 1024 * 1024:
+        return {"ok": False, "error": "The generation queue is full (server disk guard). Try again later."}, 429
     jid = uuid.uuid4().hex
     (_topo_jobs_dir() / f"{jid}.bin").write_bytes(data)
     now = time.time()
@@ -345,7 +367,7 @@ def _topo_start_job(data, mime):
     app = current_app._get_current_object()
     threading.Thread(target=_topo_worker, args=(app, uid, jid), daemon=True).start()
     audit("tool.topo_config_bg", f"image job {jid[:8]} ({len(data)} bytes)")
-    return {"ok": True, "jid": jid}
+    return {"ok": True, "jid": jid}, 200
 
 
 def _topo_worker(app, uid, jid):
@@ -415,6 +437,9 @@ def topo_config_status(jid):
     started = job.get("started", now)
     elapsed = max(0, int(now - started))
     stage = job.get("stage", "queued")
+    if stage not in ("done", "error") and now - job.get("updated", started) > current_app.config.get("AI_JOB_STALE_SECONDS", 1200):
+        return {"stage": "error", "chars": 0, "elapsed": elapsed, "progress": 40.0, "rid": "",
+                "error": "The generation was interrupted (service restart?). Please start again."}
     chars = int(job.get("chars") or 0)
     stage_t = max(0.0, now - job.get("stage_since", started))
     if stage == "queued":
@@ -642,7 +667,8 @@ def _enh_worker(app, pid, uid, jid):
                 audit("summary.enhance_bg", f"project {pid}: {len(polished)} chars")
             else:
                 job.update(stage="error", words=0,
-                           error="the AI model returned nothing (check connectivity / server logs)",
+                           error=(ai_mod.service_error(cfg)
+                                  or "the AI model returned nothing (check server logs)"),
                            updated=time.time())
             _enh_write(jid, **job)
     except Exception as e:
@@ -667,7 +693,9 @@ def summary_enhance_start(pid):
         return {"ok": False, "error": "AI enhancement is not configured"}, 400
     _enh_cleanup()
     uid = session.get("uid")
-    # one live job per user+project: double-clicks / reloads resume the same bar
+    # one live job per user+project: double-clicks / reloads resume the same bar;
+    # hard cap of 2 live jobs per user across projects (thread guard)
+    live = 0
     for f in _enh_jobs_dir().glob("*.json"):
         try:
             j = json.loads(f.read_text(encoding="utf-8"))
@@ -676,6 +704,10 @@ def summary_enhance_start(pid):
         if (j.get("user") == uid and j.get("pid") == pid
                 and j.get("stage") in ("queued", "load", "gen") and time.time() - j.get("updated", 0) < 1800):
             return {"ok": True, "jid": f.stem, "existing": True}
+        if j.get("user") == uid and j.get("stage") in ("queued", "load", "gen"):
+            live += 1
+    if live >= 2:
+        return {"ok": False, "error": "You already have 2 AI enhancements running. Wait for one to finish."}, 429
     jid = uuid.uuid4().hex
     _enh_write(jid, user=uid, pid=pid, stage="queued", words=0, error="",
                started=time.time(), updated=time.time())
@@ -693,6 +725,11 @@ def summary_enhance_status(jid):
     job = _enh_read(jid)
     if not job or job.get("user") != session.get("uid"):
         abort(404)
+    if job.get("stage") not in ("done", "error") and time.time() - job.get("updated", job.get("started", time.time())) > current_app.config.get("AI_JOB_STALE_SECONDS", 1200):
+        return {"stage": "error", "words": 0,
+                "elapsed": max(0, int(time.time() - job.get("started", time.time()))),
+                "progress": 40.0,
+                "error": "The enhancement was interrupted (service restart?). Please start again."}
     elapsed = max(0, int(time.time() - job.get("started", time.time())))
     stage, words = job.get("stage", "queued"), int(job.get("words") or 0)
     # progress math (single source of truth for the bar)

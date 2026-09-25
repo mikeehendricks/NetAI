@@ -20,6 +20,25 @@ SYSTEM_PROMPT = (
 )
 
 
+def service_error(cfg) -> str:
+    """Human-readable reason when the configured OpenAI-compatible service is
+    unreachable, or '' if it answers. Used to give precise background-job errors
+    (e.g. Ollama not running) instead of a generic 'model returned nothing'."""
+    provider = (cfg.get("AI_PROVIDER") or "").lower()
+    if provider not in ("openai", "custom"):
+        return ""
+    base = (cfg.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    try:
+        requests.get(base + "/models", timeout=3,
+                     headers={"Authorization": "Bearer " + (cfg.get("OPENAI_API_KEY") or "x")})
+        return ""
+    except requests.exceptions.ConnectionError:
+        return (f"could not reach the AI service at {base} - is it running? "
+                "check: sudo systemctl status ollama")
+    except Exception:
+        return ""
+
+
 def _strip_fence_wrap(text: str) -> str:
     """Small local models often wrap the whole answer in ```markdown fences (sometimes
     unterminated). Strip the wrapping fence lines so the markdown renders normally."""

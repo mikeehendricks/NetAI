@@ -156,6 +156,11 @@ def extract_topology_from_image(cfg, data: bytes, mime: str, progress=None):
                     text = r2.json()["choices"][0]["message"]["content"]
     except ValueError:
         raise
+    except requests.exceptions.ConnectionError:
+        log.warning("vision extraction failed: cannot reach the AI service")
+        raise ValueError("Could not reach the AI service at "
+                         f"{(cfg.get('OPENAI_BASE_URL') or '').rstrip('/') or 'the configured base URL'} - "
+                         "is Ollama running? check: sudo systemctl status ollama")
     except Exception as e:  # network/API errors -> friendly, specific message
         log.warning("vision extraction failed (%s): %s", vmodel, e)
         raise ValueError(f"The vision model '{vmodel}' failed to process the image "
