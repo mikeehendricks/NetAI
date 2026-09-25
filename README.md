@@ -9,6 +9,34 @@ the parsed interfaces, VLANs, subnets and routes.
 ![python](https://img.shields.io/badge/python-3.9%2B-informational)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+## Screenshots
+
+All screens below are captured from a running NetAI instance (dark theme, admin view).
+
+<p align="center">
+  <img src="docs/screenshots/topology.png" alt="Low-level network topology — interactive SVG map built from parsed configs" width="920">
+  <br><sub><b>Low-level topology</b> — auto-generated from parsed interfaces, subnets, VLANs and routes. Drag, zoom, hover for details, export to SVG.</sub>
+</p>
+
+| | |
+|---|---|
+| <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="480"/> | <img src="docs/screenshots/summary.png" alt="AI-enhanced executive summary" width="480"/> |
+| **Dashboard** — analyses, findings, risk score and grade at a glance. | **Executive summary** — risk narrative, device inventory, phased roadmap; optionally narrated by an LLM with one click. |
+| <img src="docs/screenshots/generated.png" alt="Generated configurations" width="480"/> | <img src="docs/screenshots/generator.png" alt="Config generator" width="480"/> |
+| **Generated configurations** — hardened baselines per device (PAN-OS set format shown), downloadable individually or as a ZIP. | **Config generator** — from a topology image (AI vision, fully local with Ollama) or from an analysed project (offline). |
+
+<details>
+<summary><strong>More screenshots</strong> — findings analysis, login, admin settings, realtime user map</summary>
+
+| | |
+|---|---|
+| <img src="docs/screenshots/analysis.png" alt="Findings analysis" width="480"/> | <img src="docs/screenshots/settings.png" alt="Admin settings" width="480"/> |
+| **Findings** — evidence lines, business impact and ready-to-paste remediation configs for every rule hit. | **Admin settings** — AI provider recipes (OpenAI, Anthropic, Gemini/Groq free tiers, fully-local Ollama) with copy-paste `.env` blocks. |
+| <img src="docs/screenshots/livemap.png" alt="Realtime user map" width="480"/> | <img src="docs/screenshots/login.png" alt="Login" width="480"/> |
+| **Live map** — active sessions geolocated in real time, recent login history. | **Sign-in** — one-time-setup admin bootstrap via a root-only setup key. |
+
+</details>
+
 ## Features
 
 **1. Configuration analysis (the AI engine)**
