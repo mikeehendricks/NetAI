@@ -2,6 +2,7 @@
 The engine is fully functional without any AI key (deterministic mode)."""
 import json
 import logging
+import re
 
 import requests
 
@@ -14,8 +15,20 @@ SYSTEM_PROMPT = (
     "a 3-sentence risk narrative for non-technical executives, (2) summarises the top risks with plain-"
     "language business impact, (3) gives a prioritised remediation roadmap, and (4) notes any ADDITIONAL "
     "risk patterns you observe that the rule engine may have missed (mark those clearly as 'AI observation'). "
-    "Do not invent findings that contradict the data."
+    "Do not invent findings that contradict the data. "
+    "Output plain Markdown only: no HTML tags, no HTML entities, and never wrap the answer in ``` fences."
 )
+
+
+def _strip_fence_wrap(text: str) -> str:
+    """Small local models often wrap the whole answer in ```markdown fences (sometimes
+    unterminated). Strip the wrapping fence lines so the markdown renders normally."""
+    t = (text or "").strip()
+    if t.startswith("```") and re.match(r"^```[A-Za-z]*\s*$", t.split("\n", 1)[0]):
+        t = t.split("\n", 1)[1] if "\n" in t else ""
+    if t.rstrip().endswith("```"):
+        t = t.rstrip()[:-3]
+    return t.strip()
 
 
 def ai_available(cfg) -> bool:
@@ -65,7 +78,7 @@ def enhance(cfg, findings, draft_markdown, progress=None) -> str:
                 timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
             )
             r.raise_for_status()
-            return r.json()["content"][0]["text"]
+            return _strip_fence_wrap(r.json()["content"][0]["text"])
         else:  # openai or custom
             base = (cfg.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
             payload = {"model": cfg.get("OPENAI_MODEL", "gpt-4o-mini"),
@@ -81,7 +94,7 @@ def enhance(cfg, findings, draft_markdown, progress=None) -> str:
                     timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
                 )
                 r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"]
+                return _strip_fence_wrap(r.json()["choices"][0]["message"]["content"])
             # streaming: report real progress while tokens arrive
             payload["stream"] = True
             r = requests.post(
@@ -113,7 +126,7 @@ def enhance(cfg, findings, draft_markdown, progress=None) -> str:
                         last_words = words
                         progress("gen", words)
             if text:
-                return "".join(text)
+                return _strip_fence_wrap("".join(text))
             # server ignored stream:true and sent a normal body (or empty) - fall back
             fallback = {k: v for k, v in payload.items() if k != "stream"}
             r2 = requests.post(
@@ -124,7 +137,7 @@ def enhance(cfg, findings, draft_markdown, progress=None) -> str:
                 timeout=int(cfg.get("AI_TEXT_TIMEOUT") or 45),
             )
             r2.raise_for_status()
-            return r2.json()["choices"][0]["message"]["content"]
+            return _strip_fence_wrap(r2.json()["choices"][0]["message"]["content"])
     except Exception as e:
         log.warning("AI enhancement failed: %s", e)
         return ""

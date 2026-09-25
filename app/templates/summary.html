@@ -39,7 +39,7 @@
 {% if p.ai_enhanced and s.get('ai_markdown') %}
 <div class="card">
   <span class="aibadge">AI-enhanced</span>
-  <div class="md">{{ md_html }}</div>
+  <div class="md">{{ md_html | safe }}</div>
 </div>
 {% else %}
 <div class="card">

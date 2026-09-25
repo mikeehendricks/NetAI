@@ -22,6 +22,17 @@ def md_to_html(md: str) -> str:
         if not ln.strip():
             i += 1
             continue
+        if re.match(r"^\s*```", ln):
+            # fenced code block: collect verbatim, escape-first (XSS-safe)
+            i += 1
+            block = []
+            while i < len(lines) and not re.match(r"^\s*```\s*$", lines[i]):
+                block.append(lines[i])
+                i += 1
+            i += 1  # skip the closing fence (or run off the end for unterminated)
+            body = str(escape("\n".join(block)))
+            out.append('<pre class="code"><code>' + body + "</code></pre>")
+            continue
         if ln.startswith("|") and i + 1 < len(lines) and re.match(r"^\|[\s:|-]+\|?\s*$", lines[i + 1]):
             # table
             header = [c.strip() for c in ln.strip("|").split("|")]
@@ -55,10 +66,10 @@ def md_to_html(md: str) -> str:
                 i += 1
             out.append("</ul>")
             continue
-        # paragraph (merge consecutive plain lines)
+        # paragraph (merge consecutive plain lines; fences end a paragraph)
         para = [ln]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(\||#|\s*[-*+]\s|\s*---)", lines[i]):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(\||#|\s*[-*+]\s|\s*---|\s*```)", lines[i]):
             para.append(lines[i])
             i += 1
         out.append(f"<p>{_inline(' '.join(para))}</p>")
